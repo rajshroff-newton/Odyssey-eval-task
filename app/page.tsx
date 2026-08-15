@@ -318,8 +318,24 @@ export default function Page() {
     setStep("done");
   }
 
+  // Blocks copy/cut/right-click/drag everywhere on the page except inside
+  // actual form fields — someone can still copy what they themselves typed
+  // out of an input or textarea, but can't copy instructions, definitions,
+  // or the stimulus by right-clicking or selecting elsewhere on the page.
+  function blockCopyExceptFormFields(e: React.SyntheticEvent) {
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    e.preventDefault();
+  }
+
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 lg:px-8">
+    <main
+      className="mx-auto max-w-6xl select-none px-4 py-8 lg:px-8"
+      onCopy={blockCopyExceptFormFields}
+      onCut={blockCopyExceptFormFields}
+      onContextMenu={blockCopyExceptFormFields}
+      onDragStart={blockCopyExceptFormFields}
+    >
       <Header taskKind={taskKind} />
 
       {step === "gate" && (
@@ -354,48 +370,52 @@ export default function Page() {
       )}
 
       {step === "task" && taskKind === "evaluation" && (
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[420px_1fr] lg:items-start">
-          <div className="lg:sticky lg:top-6">
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[420px_1fr] lg:items-stretch">
+          <div className="lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
             <StimulusPanel />
           </div>
 
-          <EvalTaskForm
-            scores={scores}
-            setScores={setScores}
-            justifications={justifications}
-            setJustifications={setJustifications}
-            feedbackGeneral={feedbackGeneral}
-            setFeedbackGeneral={setFeedbackGeneral}
-            feedbackNewDimensions={feedbackNewDimensions}
-            setFeedbackNewDimensions={setFeedbackNewDimensions}
-            canSubmit={canSubmitEval}
-            submitting={submitting}
-            error={error}
-            onSubmit={handleSubmitEval}
-          />
+          <div className="lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
+            <EvalTaskForm
+              scores={scores}
+              setScores={setScores}
+              justifications={justifications}
+              setJustifications={setJustifications}
+              feedbackGeneral={feedbackGeneral}
+              setFeedbackGeneral={setFeedbackGeneral}
+              feedbackNewDimensions={feedbackNewDimensions}
+              setFeedbackNewDimensions={setFeedbackNewDimensions}
+              canSubmit={canSubmitEval}
+              submitting={submitting}
+              error={error}
+              onSubmit={handleSubmitEval}
+            />
+          </div>
         </div>
       )}
 
       {step === "task" && taskKind === "golden_rewrite" && (
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[420px_1fr] lg:items-start">
-          <div className="lg:sticky lg:top-6">
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[420px_1fr] lg:items-stretch">
+          <div className="lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
             <StimulusPanel />
           </div>
 
-          <GoldenRewriteForm
-            personaAnswers={personaAnswers}
-            addSection={addSection}
-            removeSection={removeSection}
-            updateSection={updateSection}
-            personaChecklists={personaChecklists}
-            addChecklistItem={addChecklistItem}
-            removeChecklistItem={removeChecklistItem}
-            updateChecklistItem={updateChecklistItem}
-            canSubmit={canSubmitGoldenRewrite}
-            submitting={submitting}
-            error={error}
-            onSubmit={handleSubmitGoldenRewrite}
-          />
+          <div className="lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
+            <GoldenRewriteForm
+              personaAnswers={personaAnswers}
+              addSection={addSection}
+              removeSection={removeSection}
+              updateSection={updateSection}
+              personaChecklists={personaChecklists}
+              addChecklistItem={addChecklistItem}
+              removeChecklistItem={removeChecklistItem}
+              updateChecklistItem={updateChecklistItem}
+              canSubmit={canSubmitGoldenRewrite}
+              submitting={submitting}
+              error={error}
+              onSubmit={handleSubmitGoldenRewrite}
+            />
+          </div>
         </div>
       )}
 
@@ -527,11 +547,12 @@ function StimulusPanel() {
           alt={MODULE_INFO.screenshotAlt}
           width={300}
           height={520}
+          draggable={false}
           className="h-auto w-full max-w-[300px] rounded-xl border border-line"
         />
       </div>
 
-      <div className="max-h-[65vh] overflow-y-auto border-t border-line">
+      <div className="border-t border-line">
         <table className="w-full text-left text-sm">
           <tbody>
             {MODULE_INFO.fields.map((f) => (
@@ -539,7 +560,7 @@ function StimulusPanel() {
                 <td className="w-32 shrink-0 px-3 py-3 font-mono text-[11px] font-semibold uppercase tracking-wide text-brass">
                   {f.field}
                 </td>
-                <td className="px-3 py-3 text-[13px] leading-relaxed text-ink/90">
+                <td className="whitespace-pre-line px-3 py-3 text-[13px] leading-relaxed text-ink/90">
                   {f.text}
                 </td>
               </tr>

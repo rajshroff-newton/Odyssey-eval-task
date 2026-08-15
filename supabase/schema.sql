@@ -147,14 +147,30 @@ alter table public.golden_rewrite_submissions
 -- overwrites attempt_number and total_seconds itself — whatever the client
 -- sends for these (if anything) is ignored, so neither value can be spoofed
 -- by editing client state or the browser clock.
+--
+-- SECURITY DEFINER + a locked search_path: the anon role only has an INSERT
+-- policy on task_sessions and on these two submission tables (no SELECT),
+-- so without this the function's own internal reads (looking up
+-- task_sessions.started_at, and counting prior submissions for
+-- attempt_number) would be silently blocked by RLS and return zero rows —
+-- total_seconds would stay null, and attempt_number would always compute as
+-- 1 regardless of how many times someone actually submitted. Running as
+-- the function's owner (via SECURITY DEFINER) lets it read those tables
+-- internally without changing what the app or anon role can read from the
+-- outside.
 create or replace function public.set_submission_metadata()
-returns trigger as $$
+returns trigger
+security definer
+set search_path = public, pg_temp
+as $$
 declare
   session_started_at timestamptz;
 begin
   -- Nth time this email has submitted this task_id on this table.
+  -- lower() on both sides so "Raj@NewtonX.com" and "raj@newtonx.com" count
+  -- as the same person.
   execute format(
-    'select coalesce(max(attempt_number), 0) + 1 from %I where attempter_email = $1 and task_id = $2',
+    'select coalesce(max(attempt_number), 0) + 1 from %I where lower(attempter_email) = lower($1) and task_id = $2',
     TG_TABLE_NAME
   )
   into new.attempt_number
