@@ -4,14 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 import {
-  MODULE_INFO,
-  EVAL_TASK_ID,
-  GOLDEN_REWRITE_TASK_ID,
+  MODULES,
+  DOMAIN_TASK_MODULE,
+  TASK_IDS,
   PERSONAS,
   SUGGESTED_HEADINGS,
   CHECKLIST_EXAMPLE,
   PersonaKey,
   TaskKind,
+  Domain,
+  ModuleInfo,
 } from "@/data/task";
 
 type Step = "gate" | "task" | "done";
@@ -141,18 +143,19 @@ function isGoldenRewriteDraft(d: unknown): d is GoldenRewriteDraft {
   );
 }
 
-function draftKey(taskKind: TaskKind, email: string): string {
-  return `odyssey-draft:${taskKind}:${email.trim().toLowerCase()}`;
+function draftKey(domain: Domain, taskKind: TaskKind, email: string): string {
+  return `odyssey-draft:${domain}:${taskKind}:${email.trim().toLowerCase()}`;
 }
 
 function loadDraft<T>(
+  domain: Domain,
   taskKind: TaskKind,
   email: string,
   isValid: (d: unknown) => d is T
 ): T | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(draftKey(taskKind, email));
+    const raw = window.localStorage.getItem(draftKey(domain, taskKind, email));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return isValid(parsed) ? parsed : null;
@@ -163,10 +166,10 @@ function loadDraft<T>(
   }
 }
 
-function saveDraft(taskKind: TaskKind, email: string, data: unknown) {
+function saveDraft(domain: Domain, taskKind: TaskKind, email: string, data: unknown) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(draftKey(taskKind, email), JSON.stringify(data));
+    window.localStorage.setItem(draftKey(domain, taskKind, email), JSON.stringify(data));
   } catch {
     // Autosave is a convenience — a write failure (storage full, disabled,
     // private browsing quirks) should never break the task itself.
@@ -175,6 +178,7 @@ function saveDraft(taskKind: TaskKind, email: string, data: unknown) {
 
 export default function Page() {
   const [step, setStep] = useState<Step>("gate");
+  const [domain, setDomain] = useState<Domain>("traditional_finance");
   const [taskKind, setTaskKind] = useState<TaskKind>("evaluation");
   const [error, setError] = useState<string | null>(null);
   const [startingTask, setStartingTask] = useState(false);
@@ -189,6 +193,13 @@ export default function Page() {
   const sessionIdRef = useRef<string | null>(null);
 
   const requiredAccessCode = process.env.NEXT_PUBLIC_TASK_ACCESS_CODE ?? "";
+
+  // Which module (and which task_id) this domain + task type maps to.
+  // Traditional finance splits across two modules (Gold for Evaluation,
+  // Energy for Golden rewrite); crypto uses BNB for both.
+  const currentModuleKey = DOMAIN_TASK_MODULE[domain][taskKind];
+  const currentModule: ModuleInfo = MODULES[currentModuleKey];
+  const currentTaskId = TASK_IDS[domain][taskKind];
 
   // Evaluation state — all three personas are scored on every eval task
   // (confirmed with the client: not one persona per task), so each of the
@@ -257,13 +268,14 @@ export default function Page() {
   // after submitting — picks up right where it left off.
   useEffect(() => {
     if (step !== "task" || taskKind !== "evaluation") return;
-    saveDraft(taskKind, email, {
+    saveDraft(domain, taskKind, email, {
       personaScores,
       personaJustifications,
       feedbackNewDimensions,
     } satisfies EvalDraft);
   }, [
     step,
+    domain,
     taskKind,
     email,
     personaScores,
@@ -273,11 +285,11 @@ export default function Page() {
 
   useEffect(() => {
     if (step !== "task" || taskKind !== "golden_rewrite") return;
-    saveDraft(taskKind, email, {
+    saveDraft(domain, taskKind, email, {
       personaAnswers,
       personaChecklists,
     } satisfies GoldenRewriteDraft);
-  }, [step, taskKind, email, personaAnswers, personaChecklists]);
+  }, [step, domain, taskKind, email, personaAnswers, personaChecklists]);
 
   function addSection(persona: PersonaKey) {
     setPersonaAnswers((prev) => ({
@@ -348,7 +360,7 @@ export default function Page() {
       id,
       attempter_email: email.trim(),
       task_kind: taskKind,
-      task_id: taskKind === "evaluation" ? EVAL_TASK_ID : GOLDEN_REWRITE_TASK_ID,
+      task_id: currentTaskId,
     });
 
     setStartingTask(false);
@@ -382,7 +394,7 @@ export default function Page() {
     const payload = {
       attempter_name: name.trim(),
       attempter_email: email.trim(),
-      task_id: EVAL_TASK_ID,
+      task_id: currentTaskId,
       session_id: sessionIdRef.current,
 
       rookie_scores: toScoresJson("rookie"),
@@ -431,7 +443,7 @@ export default function Page() {
     const payload = {
       attempter_name: name.trim(),
       attempter_email: email.trim(),
-      task_id: GOLDEN_REWRITE_TASK_ID,
+      task_id: currentTaskId,
       session_id: sessionIdRef.current,
 
       rookie_answer: toJsonAnswer(personaAnswers.rookie),
@@ -484,7 +496,7 @@ export default function Page() {
       onDragStart={blockCopyExceptFormFields}
       onPaste={blockPaste}
     >
-      <Header taskKind={taskKind} />
+      <Header module={currentModule} taskKind={taskKind} taskId={currentTaskId} />
 
       {step === "gate" && (
         <GateScreen
@@ -492,6 +504,8 @@ export default function Page() {
           setName={setName}
           email={email}
           setEmail={setEmail}
+          domain={domain}
+          setDomain={setDomain}
           taskKind={taskKind}
           setTaskKind={setTaskKind}
           accessCode={accessCode}
@@ -514,7 +528,7 @@ export default function Page() {
             }
 
             if (taskKind === "evaluation") {
-              const draft = loadDraft<EvalDraft>(taskKind, email, isEvalDraft);
+              const draft = loadDraft<EvalDraft>(domain, taskKind, email, isEvalDraft);
               if (draft) {
                 setPersonaScores(draft.personaScores);
                 setPersonaJustifications(draft.personaJustifications);
@@ -522,6 +536,7 @@ export default function Page() {
               }
             } else {
               const draft = loadDraft<GoldenRewriteDraft>(
+                domain,
                 taskKind,
                 email,
                 isGoldenRewriteDraft
@@ -540,7 +555,7 @@ export default function Page() {
       {step === "task" && taskKind === "evaluation" && (
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[420px_1fr] lg:items-stretch">
           <div className="lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
-            <StimulusPanel />
+            <StimulusPanel module={currentModule} />
           </div>
 
           <div className="lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
@@ -563,7 +578,7 @@ export default function Page() {
       {step === "task" && taskKind === "golden_rewrite" && (
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[420px_1fr] lg:items-stretch">
           <div className="lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
-            <StimulusPanel />
+            <StimulusPanel module={currentModule} />
           </div>
 
           <div className="lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
@@ -590,17 +605,24 @@ export default function Page() {
   );
 }
 
-function Header({ taskKind }: { taskKind: TaskKind }) {
+function Header({
+  module,
+  taskKind,
+  taskId,
+}: {
+  module: ModuleInfo;
+  taskKind: TaskKind;
+  taskId: string;
+}) {
   const label = taskKind === "evaluation" ? "Evaluation" : "Golden rewrite";
-  const taskId = taskKind === "evaluation" ? EVAL_TASK_ID : GOLDEN_REWRITE_TASK_ID;
   return (
     <header className="border-b border-line pb-4">
       <p className="font-mono text-xs uppercase tracking-wider text-brass">
         {label} task · {taskId}
       </p>
-      <h1 className="mt-1 text-2xl font-semibold text-ink">{MODULE_INFO.module}</h1>
+      <h1 className="mt-1 text-2xl font-semibold text-ink">{module.module}</h1>
       <p className="mt-1 text-sm text-ink/60">
-        {MODULE_INFO.placement} · published {MODULE_INFO.publishedAt}
+        {module.placement} · published {module.publishedAt}
       </p>
     </header>
   );
@@ -611,6 +633,8 @@ function GateScreen({
   setName,
   email,
   setEmail,
+  domain,
+  setDomain,
   taskKind,
   setTaskKind,
   accessCode,
@@ -624,6 +648,8 @@ function GateScreen({
   setName: (v: string) => void;
   email: string;
   setEmail: (v: string) => void;
+  domain: Domain;
+  setDomain: (d: Domain) => void;
   taskKind: TaskKind;
   setTaskKind: (t: TaskKind) => void;
   accessCode: string;
@@ -633,15 +659,34 @@ function GateScreen({
   starting: boolean;
   onStart: () => void;
 }) {
+  const moduleNote =
+    domain === "traditional_finance"
+      ? "Traditional finance: Gold for Evaluation, Energy for Golden rewrite."
+      : "Crypto: BNB for both tasks.";
+
   return (
     <div className="mx-auto mt-10 max-w-md rounded-lg border border-line bg-white p-6">
       <h2 className="text-lg font-semibold">Before you start</h2>
       <p className="mt-2 text-sm text-ink/70">
-        Both tasks below use the same module. Both must be completed to join
-        the project — you can do them in either order, one at a time.
+        Pick your domain, then whichever task you're doing next. Both tasks
+        must be completed to join the project — you can do them in either
+        order, one at a time.
       </p>
 
-      <label className="mt-5 block text-sm font-medium">Your name</label>
+      <label className="mt-5 block text-sm font-medium">
+        Are you crypto or traditional finance?
+      </label>
+      <select
+        className="focus-ring mt-1 w-full rounded border border-line bg-white px-3 py-2 text-sm"
+        value={domain}
+        onChange={(e) => setDomain(e.target.value as Domain)}
+      >
+        <option value="traditional_finance">Traditional finance</option>
+        <option value="crypto">Crypto</option>
+      </select>
+      <p className="mt-1 text-xs text-ink/50">{moduleNote}</p>
+
+      <label className="mt-4 block text-sm font-medium">Your name</label>
       <input
         className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm"
         value={name}
@@ -698,7 +743,7 @@ function GateScreen({
   );
 }
 
-function StimulusPanel() {
+function StimulusPanel({ module }: { module: ModuleInfo }) {
   return (
     <div className="rounded-lg border border-line bg-white">
       <div className="border-b border-line px-4 py-3">
@@ -709,8 +754,8 @@ function StimulusPanel() {
 
       <div className="flex justify-center bg-paper p-4">
         <Image
-          src={MODULE_INFO.screenshotSrc}
-          alt={MODULE_INFO.screenshotAlt}
+          src={module.screenshotSrc}
+          alt={module.screenshotAlt}
           width={300}
           height={520}
           draggable={false}
@@ -721,7 +766,7 @@ function StimulusPanel() {
       <div className="border-t border-line">
         <table className="w-full text-left text-sm">
           <tbody>
-            {MODULE_INFO.fields.map((f) => (
+            {module.fields.map((f) => (
               <tr key={f.field} className="border-b border-line align-top">
                 <td className="w-32 shrink-0 px-3 py-3 font-mono text-[11px] font-semibold uppercase tracking-wide text-brass">
                   {f.field}

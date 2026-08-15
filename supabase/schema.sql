@@ -202,11 +202,12 @@ create trigger golden_rewrite_submissions_set_metadata
 before insert on public.golden_rewrite_submissions
 for each row execute function public.set_submission_metadata();
 
--- Optional cleanup: if you created eval_submissions_latest /
--- golden_rewrite_submissions_latest views earlier, attempt_number above
--- supersedes them — you can drop them if you'd rather rely on this instead:
---   drop view if exists public.eval_submissions_latest;
---   drop view if exists public.golden_rewrite_submissions_latest;
+-- These two views (if you created them, back when attempt tracking was
+-- first being designed) are fully superseded by the attempt_number trigger
+-- above, and one of them depends on feedback_general — which gets dropped
+-- further down — so they need to go first or that drop fails.
+drop view if exists public.eval_submissions_latest;
+drop view if exists public.golden_rewrite_submissions_latest;
 
 -- ============================================================
 -- Per-persona scoring on the Evaluation task

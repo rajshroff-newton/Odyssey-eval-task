@@ -1,23 +1,32 @@
 # Odyssey Eval Task
 
-Two tasks built to spec from the Attempter Guidelines doc, both using the
-same stimulus (Gold / XAUUSDT macro report screenshot + full extracted
-table, pinned on screen while working):
+Two tasks built to spec from the Attempter Guidelines doc, run across three
+real modules split by domain:
+
+- **Traditional finance** — Gold (XAUUSDT) for Evaluation, Energy (CLUSDT)
+  for Golden rewrite.
+- **Crypto** — BNB for both tasks.
+
+The attempter picks their domain first, then which task, on the start
+screen; that combination determines which module's screenshot + extracted
+table they see.
 
 - **Evaluation** — score three dimensions (intent recognition, authority,
-  utility), each with its own required justification, then two feedback
-  boxes.
-- **Golden rewrite** — for each of the three personas (Rookie, Mid-tier,
-  Experienced), write a reasoning checklist (the steps taken to reach the
-  answer), then the improved answer as any number of heading + bullet-point
-  sections.
+  utility) once per persona (Rookie, Mid-tier, Experienced — 9 scores
+  total), each with its own required justification, then an optional
+  additional-dimensions feedback box.
+- **Golden rewrite** — for each of the three personas, write a reasoning
+  checklist (step / observations / conclusion), then the improved answer as
+  any number of heading + bullet-point sections.
 
-The attempter picks which one to do from a dropdown on the start screen.
-Submissions post to Supabase, one table per task type. Timing (how long a
-submission took) and attempt numbering (is this someone's 2nd, 3rd... try
-at a task) are both computed **server-side** in Postgres — see
-`supabase/schema.sql` for how — so neither can be affected by the browser's
-clock, a backgrounded tab, or edited client state.
+Submissions post to Supabase, one table per task type — `task_id` alone
+tells you which domain and module a submission belongs to (e.g.
+`bnb-eval-2026-08-12` vs `xauusdt-eval-2026-08-12`), so no separate domain
+column was needed. Timing (how long a submission took) and attempt
+numbering (is this someone's 2nd, 3rd... try at a task) are both computed
+**server-side** in Postgres — see `supabase/schema.sql` for how — so neither
+can be affected by the browser's clock, a backgrounded tab, or edited client
+state.
 
 ## Stack
 - Next.js 14 (App Router) + TypeScript + Tailwind
@@ -62,11 +71,23 @@ Open http://localhost:3000.
 
 ## Editing the task content
 
-Everything specific to this module (the screenshot, the full extracted
-table, persona definitions, suggested headings, task ids) lives in
-`data/task.ts` and `public/xauusdt-screenshot.png`. To stand up a new module,
-add a new screenshot to `public/`, duplicate `task.ts`'s shape pointing at
-it, and swap the content — the flow in `app/page.tsx` doesn't need to change.
+All three modules (screenshot, extracted table, task ids) live in
+`data/task.ts`, under `MODULES` (keyed `gold` / `energy` / `bnb`) plus the
+`DOMAIN_TASK_MODULE` and `TASK_IDS` maps that decide which module and task
+id a given domain + task-type combination gets. Persona definitions and
+suggested headings are shared across all modules, so they're defined once,
+outside `MODULES`.
+
+To add a new module: drop its screenshot in `public/`, add an entry to
+`MODULES`, and point one of the `DOMAIN_TASK_MODULE` slots at it (or add a
+new domain entirely). `app/page.tsx` doesn't need to change — it always
+renders whichever module the current domain + task type resolves to.
+
+**Known gap:** the BNB module's source table was cut off after Probability
+Assessment (the source screenshot had a scroll indicator past that point).
+There may be a further section — like the Additional Assessment / trade-plan
+sections the other two modules have — that isn't captured yet. Add it to
+`MODULES.bnb.fields` in `data/task.ts` once the full table is available.
 
 ## Reviewing submissions
 
