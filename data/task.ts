@@ -68,7 +68,8 @@ export const PERSONAS: { key: PersonaKey; label: string; definition: string }[] 
 ];
 
 // Offered as starting points for each answer section's heading — attempters
-// can use these, reorder them, or write their own if it fits the asset better.
+// can use these, write their own, or mix both. There's no fixed count;
+// use as many as the asset and persona genuinely call for.
 export const SUGGESTED_HEADINGS = [
   "Core Conclusion",
   "Macro Analysis",
@@ -76,4 +77,49 @@ export const SUGGESTED_HEADINGS = [
   "Core Insight",
 ];
 
-export const MAX_SECTIONS_PER_PERSONA = 4;
+// Shown above each persona's reasoning checklist in the golden rewrite form —
+// modeled as a step-by-step chain of thought (observation, then conclusion),
+// not just a flat list of topics to cover.
+export type ChecklistExampleStep = {
+  step: string;
+  observations: string;
+  conclusion: string;
+};
+
+export const CHECKLIST_EXAMPLE: ChecklistExampleStep[] = [
+  {
+    step: "Evaluate price and volume movements since the last session.",
+    observations:
+      "Price moved +3.2% while volume increased by 15% relative to the 20-day average.",
+    conclusion:
+      "Strong buying demand confirmed by above-average volume — a firmer signal than a low-volume drift, though volume alone doesn't tell us whether the buying is coming from institutions or retail traders.",
+  },
+  {
+    step: "Map price against moving averages and support/resistance zones.",
+    observations:
+      "Price sits at $64,200, positioned above both the 50-day EMA ($61,500) and 200-day EMA ($58,000). Immediate resistance is at $65,500, with support at $63,000.",
+    conclusion:
+      "The broader medium-term structure remains bullish as long as price holds above the 50-day EMA.",
+  },
+  {
+    step: "Analyze technical momentum indicators for convergence or divergence.",
+    observations:
+      "RSI(14) is at 62; MACD line is above the signal line with expanding positive histogram bars.",
+    conclusion:
+      "Momentum indicators agree on an upward bias. No overbought warnings or bearish divergences detected yet.",
+  },
+  {
+    step: "Identify macro catalysts and transmission channels.",
+    observations:
+      "Upcoming FOMC rate decision in 3 days; CPI print scheduled for next week.",
+    conclusion:
+      "Macro volatility is expected within a 72-hour window. Short-term derivative/leverage positions carry elevated risk ahead of the release.",
+  },
+  {
+    step: "Adapt synthesis and action levels to the target persona.",
+    observations:
+      "Persona context: Mid-tier (seeking clear direction and risk boundaries without excessive technical jargon).",
+    conclusion:
+      "Highlight the $65.5k resistance target clearly and define $63.0k as the key level that invalidates the short-term bullish outlook.",
+  },
+];

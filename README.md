@@ -7,12 +7,17 @@ table, pinned on screen while working):
 - **Evaluation** — score three dimensions (intent recognition, authority,
   utility), each with its own required justification, then two feedback
   boxes.
-- **Golden rewrite** — write an improved answer for each of the three
-  personas (Rookie, Mid-tier, Experienced), each as up to 4 heading +
-  bullet-point sections.
+- **Golden rewrite** — for each of the three personas (Rookie, Mid-tier,
+  Experienced), write a reasoning checklist (the steps taken to reach the
+  answer), then the improved answer as any number of heading + bullet-point
+  sections.
 
 The attempter picks which one to do from a dropdown on the start screen.
-Submissions post to Supabase, one table per task type.
+Submissions post to Supabase, one table per task type. Timing (how long a
+submission took) and attempt numbering (is this someone's 2nd, 3rd... try
+at a task) are both computed **server-side** in Postgres — see
+`supabase/schema.sql` for how — so neither can be affected by the browser's
+clock, a backgrounded tab, or edited client state.
 
 ## Stack
 - Next.js 14 (App Router) + TypeScript + Tailwind
@@ -39,10 +44,19 @@ Open http://localhost:3000.
 
 1. Create the project (or use the existing one named `Odyssey-eval-task`).
 2. In the Supabase dashboard: **SQL Editor → New query**, paste the contents
-   of `supabase/schema.sql`, and run it. This creates `eval_submissions` and
-   `golden_rewrite_submissions`, both with RLS enabled and an insert-only
-   policy for the anon key — the app can write submissions but can't read,
-   list, or edit them back with that key.
+   of `supabase/schema.sql`, and run it. This creates `eval_submissions`,
+   `golden_rewrite_submissions`, and `task_sessions` (the server-side timing
+   anchor), all with RLS enabled and an insert-only policy for the anon
+   key — the app can write but can't read, list, or edit anything back with
+   that key. It also adds a trigger that fills in `attempt_number` and
+   `total_seconds` on every insert, overriding whatever (if anything) the
+   client sent for those fields.
+   - The whole file is safe to re-run from scratch at any point — every
+     statement (`create table if not exists`, `add column if not exists`,
+     `create or replace function`, and `drop policy if exists` /
+     `drop trigger if exists` before each `create`) is idempotent, so
+     re-running it after adding something new won't touch existing data or
+     error on things that already exist.
 3. **Project Settings → API**: copy the **Project URL** and the **anon
    public** key into `.env.local`.
 

@@ -9,7 +9,7 @@ import {
   GOLDEN_REWRITE_TASK_ID,
   PERSONAS,
   SUGGESTED_HEADINGS,
-  MAX_SECTIONS_PER_PERSONA,
+  CHECKLIST_EXAMPLE,
   PersonaKey,
   TaskKind,
 } from "@/data/task";
@@ -55,13 +55,27 @@ type Section = { heading: string; bullets: string };
 
 function emptyPersonaAnswers(): Record<PersonaKey, Section[]> {
   return {
-    rookie: [{ heading: SUGGESTED_HEADINGS[0], bullets: "" }],
-    mid_tier: [{ heading: SUGGESTED_HEADINGS[0], bullets: "" }],
-    experienced: [{ heading: SUGGESTED_HEADINGS[0], bullets: "" }],
+    rookie: [{ heading: "", bullets: "" }],
+    mid_tier: [{ heading: "", bullets: "" }],
+    experienced: [{ heading: "", bullets: "" }],
   };
 }
 
-function personaIsComplete(sections: Section[]): boolean {
+type ChecklistItem = { step: string; observations: string; conclusion: string };
+
+function emptyChecklistItem(): ChecklistItem {
+  return { step: "", observations: "", conclusion: "" };
+}
+
+function emptyPersonaChecklists(): Record<PersonaKey, ChecklistItem[]> {
+  return {
+    rookie: [emptyChecklistItem()],
+    mid_tier: [emptyChecklistItem()],
+    experienced: [emptyChecklistItem()],
+  };
+}
+
+function personaAnswerIsComplete(sections: Section[]): boolean {
   return (
     sections.length > 0 &&
     sections.every(
@@ -70,16 +84,32 @@ function personaIsComplete(sections: Section[]): boolean {
   );
 }
 
+function checklistIsComplete(items: ChecklistItem[]): boolean {
+  return (
+    items.length > 0 &&
+    items.every(
+      (i) =>
+        i.step.trim().length > 0 &&
+        i.observations.trim().length > 0 &&
+        i.conclusion.trim().length > 0
+    )
+  );
+}
+
 export default function Page() {
   const [step, setStep] = useState<Step>("gate");
   const [taskKind, setTaskKind] = useState<TaskKind>("evaluation");
   const [error, setError] = useState<string | null>(null);
+  const [startingTask, setStartingTask] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [accessCode, setAccessCode] = useState("");
-  const startTimeRef = useRef<number>(Date.now());
+
+  // Server-side timing: set once the session row is created; every timestamp
+  // used for duration comes from Postgres's own clock, not the browser's.
+  const sessionIdRef = useRef<string | null>(null);
 
   const requiredAccessCode = process.env.NEXT_PUBLIC_TASK_ACCESS_CODE ?? "";
 
@@ -107,21 +137,21 @@ export default function Page() {
   const [personaAnswers, setPersonaAnswers] = useState<Record<PersonaKey, Section[]>>(
     emptyPersonaAnswers()
   );
+  const [personaChecklists, setPersonaChecklists] = useState<Record<PersonaKey, ChecklistItem[]>>(
+    emptyPersonaChecklists()
+  );
 
-  const canSubmitGoldenRewrite = PERSONAS.every((p) =>
-    personaIsComplete(personaAnswers[p.key])
+  const canSubmitGoldenRewrite = PERSONAS.every(
+    (p) =>
+      checklistIsComplete(personaChecklists[p.key]) &&
+      personaAnswerIsComplete(personaAnswers[p.key])
   );
 
   function addSection(persona: PersonaKey) {
-    setPersonaAnswers((prev) => {
-      const current = prev[persona];
-      if (current.length >= MAX_SECTIONS_PER_PERSONA) return prev;
-      const nextHeading = SUGGESTED_HEADINGS[current.length] ?? "";
-      return {
-        ...prev,
-        [persona]: [...current, { heading: nextHeading, bullets: "" }],
-      };
-    });
+    setPersonaAnswers((prev) => ({
+      ...prev,
+      [persona]: [...prev[persona], { heading: "", bullets: "" }],
+    }));
   }
 
   function removeSection(persona: PersonaKey, index: number) {
@@ -144,16 +174,71 @@ export default function Page() {
     });
   }
 
+  function addChecklistItem(persona: PersonaKey) {
+    setPersonaChecklists((prev) => ({
+      ...prev,
+      [persona]: [...prev[persona], emptyChecklistItem()],
+    }));
+  }
+
+  function removeChecklistItem(persona: PersonaKey, index: number) {
+    setPersonaChecklists((prev) => {
+      const current = prev[persona];
+      if (current.length <= 1) return prev;
+      return { ...prev, [persona]: current.filter((_, i) => i !== index) };
+    });
+  }
+
+  function updateChecklistItem(
+    persona: PersonaKey,
+    index: number,
+    patch: Partial<ChecklistItem>
+  ) {
+    setPersonaChecklists((prev) => {
+      const current = prev[persona];
+      const next = current.map((item, i) =>
+        i === index ? { ...item, ...patch } : item
+      );
+      return { ...prev, [persona]: next };
+    });
+  }
+
+  async function startSession() {
+    setStartingTask(true);
+    setError(null);
+
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    const { error: sessionError } = await supabase.from("task_sessions").insert({
+      id,
+      attempter_email: email.trim(),
+      task_kind: taskKind,
+      task_id: taskKind === "evaluation" ? EVAL_TASK_ID : GOLDEN_REWRITE_TASK_ID,
+    });
+
+    setStartingTask(false);
+
+    if (sessionError) {
+      setError(sessionError.message ?? "Couldn't start the task. Please try again.");
+      return;
+    }
+
+    sessionIdRef.current = id;
+    setStep("task");
+  }
+
   async function handleSubmitEval() {
     setSubmitting(true);
     setError(null);
-
-    const totalSeconds = Math.round((Date.now() - startTimeRef.current) / 1000);
 
     const payload = {
       attempter_name: name.trim(),
       attempter_email: email.trim(),
       task_id: EVAL_TASK_ID,
+      session_id: sessionIdRef.current,
 
       score_intent_recognition: scores.intent_recognition,
       intent_recognition_justification: justifications.intent_recognition.trim(),
@@ -166,27 +251,25 @@ export default function Page() {
 
       feedback_general: feedbackGeneral.trim(),
       feedback_new_dimensions: feedbackNewDimensions.trim() || null,
-
-      total_seconds: totalSeconds,
     };
 
     const { error: insertError } = await supabase
       .from("eval_submissions")
       .insert(payload);
 
-    setSubmitting(false);
     if (insertError) {
+      setSubmitting(false);
       setError(insertError.message);
       return;
     }
+
+    setSubmitting(false);
     setStep("done");
   }
 
   async function handleSubmitGoldenRewrite() {
     setSubmitting(true);
     setError(null);
-
-    const totalSeconds = Math.round((Date.now() - startTimeRef.current) / 1000);
 
     function toJsonAnswer(sections: Section[]) {
       return sections.map((s) => ({
@@ -198,27 +281,40 @@ export default function Page() {
       }));
     }
 
+    function toJsonChecklist(items: ChecklistItem[]) {
+      return items.map((i) => ({
+        step: i.step.trim(),
+        observations: i.observations.trim(),
+        conclusion: i.conclusion.trim(),
+      }));
+    }
+
     const payload = {
       attempter_name: name.trim(),
       attempter_email: email.trim(),
       task_id: GOLDEN_REWRITE_TASK_ID,
+      session_id: sessionIdRef.current,
 
       rookie_answer: toJsonAnswer(personaAnswers.rookie),
       mid_tier_answer: toJsonAnswer(personaAnswers.mid_tier),
       experienced_answer: toJsonAnswer(personaAnswers.experienced),
 
-      total_seconds: totalSeconds,
+      rookie_checklist: toJsonChecklist(personaChecklists.rookie),
+      mid_tier_checklist: toJsonChecklist(personaChecklists.mid_tier),
+      experienced_checklist: toJsonChecklist(personaChecklists.experienced),
     };
 
     const { error: insertError } = await supabase
       .from("golden_rewrite_submissions")
       .insert(payload);
 
-    setSubmitting(false);
     if (insertError) {
+      setSubmitting(false);
       setError(insertError.message);
       return;
     }
+
+    setSubmitting(false);
     setStep("done");
   }
 
@@ -238,8 +334,8 @@ export default function Page() {
           setAccessCode={setAccessCode}
           requiredAccessCode={requiredAccessCode}
           error={error}
+          starting={startingTask}
           onStart={() => {
-            setError(null);
             if (requiredAccessCode && accessCode.trim() !== requiredAccessCode) {
               setError("Access code doesn't match. Check with the project team.");
               return;
@@ -252,8 +348,7 @@ export default function Page() {
               setError("Enter a valid email address before starting.");
               return;
             }
-            startTimeRef.current = Date.now();
-            setStep("task");
+            startSession();
           }}
         />
       )}
@@ -292,6 +387,10 @@ export default function Page() {
             addSection={addSection}
             removeSection={removeSection}
             updateSection={updateSection}
+            personaChecklists={personaChecklists}
+            addChecklistItem={addChecklistItem}
+            removeChecklistItem={removeChecklistItem}
+            updateChecklistItem={updateChecklistItem}
             canSubmit={canSubmitGoldenRewrite}
             submitting={submitting}
             error={error}
@@ -332,6 +431,7 @@ function GateScreen({
   setAccessCode,
   requiredAccessCode,
   error,
+  starting,
   onStart,
 }: {
   name: string;
@@ -344,6 +444,7 @@ function GateScreen({
   setAccessCode: (v: string) => void;
   requiredAccessCode: string;
   error: string | null;
+  starting: boolean;
   onStart: () => void;
 }) {
   return (
@@ -401,10 +502,11 @@ function GateScreen({
       {error && <p className="mt-3 text-sm text-warn">{error}</p>}
 
       <button
+        disabled={starting}
         onClick={onStart}
-        className="focus-ring mt-5 w-full rounded bg-ink px-4 py-2 text-sm font-medium text-paper hover:bg-ink/90"
+        className="focus-ring mt-5 w-full rounded bg-ink px-4 py-2 text-sm font-medium text-paper hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        Start task
+        {starting ? "Starting…" : "Start task"}
       </button>
     </div>
   );
@@ -597,6 +699,10 @@ function GoldenRewriteForm({
   addSection,
   removeSection,
   updateSection,
+  personaChecklists,
+  addChecklistItem,
+  removeChecklistItem,
+  updateChecklistItem,
   canSubmit,
   submitting,
   error,
@@ -606,6 +712,14 @@ function GoldenRewriteForm({
   addSection: (persona: PersonaKey) => void;
   removeSection: (persona: PersonaKey, index: number) => void;
   updateSection: (persona: PersonaKey, index: number, patch: Partial<Section>) => void;
+  personaChecklists: Record<PersonaKey, ChecklistItem[]>;
+  addChecklistItem: (persona: PersonaKey) => void;
+  removeChecklistItem: (persona: PersonaKey, index: number) => void;
+  updateChecklistItem: (
+    persona: PersonaKey,
+    index: number,
+    patch: Partial<ChecklistItem>
+  ) => void;
   canSubmit: boolean;
   submitting: boolean;
   error: string | null;
@@ -616,21 +730,28 @@ function GoldenRewriteForm({
       <div className="rounded-lg border border-line bg-white p-5">
         <h2 className="text-base font-semibold">Write the improved answer, per persona</h2>
         <p className="mt-1 text-sm text-ink/60">
-          For each persona, write your rewrite as a heading followed by bullet
-          points — Core Conclusion, then its bullets; Macro Analysis, then its
-          bullets; and so on. Use the suggested headings or write your own if
-          they fit the asset better. Up to 4 headings per persona.
+          For each persona: first write the reasoning checklist, then the
+          rewrite itself as a heading followed by bullet points — Core
+          Conclusion, then its bullets; Macro Analysis, then its bullets; and
+          so on. Use the suggested headings or write your own if they fit the
+          asset better. There's no fixed number of headings — use your own
+          judgment for how many this asset and persona actually need.
         </p>
-        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-ink/60">
+        <p className="mt-3 text-sm text-ink/60">
+          A few starting points, not a rigid checklist — use judgment on how
+          each applies to this asset and persona:
+        </p>
+        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-ink/60">
           <li>Verify every number against reliable external market data before using it.</li>
           <li>State risk plainly, in terms this persona can absorb.</li>
-          <li>Make each persona's version clearly different in content and framing, not just simpler wording.</li>
+          <li>Make each persona's version clearly different in content and framing.</li>
           <li>Keep it about the length of the original module, or shorter.</li>
         </ul>
       </div>
 
       {PERSONAS.map((persona) => {
         const sections = personaAnswers[persona.key];
+        const checklist = personaChecklists[persona.key];
         return (
           <div key={persona.key} className="rounded-lg border border-line bg-white p-5">
             <h3 className="text-base font-semibold">{persona.label}</h3>
@@ -638,7 +759,116 @@ function GoldenRewriteForm({
               {persona.definition}
             </p>
 
-            <div className="mt-4 space-y-4">
+            {/* Reasoning checklist */}
+            <div className="mt-5 rounded border border-line p-4">
+              <p className="text-sm font-semibold">Reasoning checklist</p>
+              <p className="mt-1 text-sm text-ink/60">
+                Before writing the answer below, walk through the analytical
+                steps a competent analyst would actually take for this asset
+                and this persona, in order. For each step, name the step,
+                your Observations, and your Conclusion — this is graded on
+                its own, since it shows how you got to the answer, not just
+                the answer itself. A rookie checklist might include a step
+                for explaining what an indicator means before using it; an
+                experienced checklist usually wouldn't need that step.
+              </p>
+
+              <details className="mt-2">
+                <summary className="cursor-pointer text-xs font-medium text-brass">
+                  Example checklist (different asset, for illustration only)
+                </summary>
+                <ol className="mt-2 space-y-3 pl-5 text-xs text-ink/60">
+                  {CHECKLIST_EXAMPLE.map((item, i) => (
+                    <li key={i} className="list-decimal">
+                      <span className="font-medium text-ink/70">{item.step}</span>
+                      <p className="mt-0.5">
+                        <span className="font-semibold text-ink/50">Observations: </span>
+                        {item.observations}
+                      </p>
+                      <p className="mt-0.5">
+                        <span className="font-semibold text-ink/50">Conclusion: </span>
+                        {item.conclusion}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
+              </details>
+
+              <div className="mt-3 space-y-4">
+                {checklist.map((item, i) => (
+                  <div key={i} className="rounded border border-line p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-ink/50">
+                        Step {i + 1}
+                      </span>
+                      {checklist.length > 1 && (
+                        <button
+                          onClick={() => removeChecklistItem(persona.key, i)}
+                          className="focus-ring text-xs text-ink/40 hover:text-warn"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm font-medium"
+                      value={item.step}
+                      onChange={(e) =>
+                        updateChecklistItem(persona.key, i, { step: e.target.value })
+                      }
+                      placeholder="e.g. Evaluate price and volume movements since the last session"
+                    />
+
+                    <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-ink/50">
+                      Observations
+                    </label>
+                    <textarea
+                      className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
+                      rows={2}
+                      value={item.observations}
+                      onChange={(e) =>
+                        updateChecklistItem(persona.key, i, {
+                          observations: e.target.value,
+                        })
+                      }
+                      placeholder="e.g. Price moved +3.2% while volume increased by 15% relative to the 20-day average."
+                    />
+
+                    <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-ink/50">
+                      Conclusion
+                    </label>
+                    <textarea
+                      className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
+                      rows={2}
+                      value={item.conclusion}
+                      onChange={(e) =>
+                        updateChecklistItem(persona.key, i, {
+                          conclusion: e.target.value,
+                        })
+                      }
+                      placeholder="e.g. Strong buying demand confirmed by above-average volume — a firmer signal than a low-volume drift."
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={() => addChecklistItem(persona.key)}
+                className="focus-ring mt-3 rounded border border-line px-3 py-1.5 text-xs font-medium text-ink/70 hover:border-brass hover:text-brass"
+              >
+                + Add reasoning step
+              </button>
+            </div>
+
+            {/* Rewritten answer */}
+            <div className="mt-6 border-t border-line pt-5">
+              <p className="text-sm font-semibold">Rewritten answer</p>
+              <p className="mt-1 text-sm text-ink/60">
+                Now write the improved answer itself, as a heading followed
+                by bullet points for each section.
+              </p>
+            </div>
+            <div className="mt-3 space-y-4">
               {sections.map((section, i) => (
                 <div key={i} className="rounded border border-line p-3">
                   <div className="flex items-center justify-between gap-2">
@@ -660,7 +890,7 @@ function GoldenRewriteForm({
                     onChange={(e) =>
                       updateSection(persona.key, i, { heading: e.target.value })
                     }
-                    placeholder={SUGGESTED_HEADINGS[i] ?? "Section heading"}
+                    placeholder={`e.g. ${SUGGESTED_HEADINGS[i] ?? "Section heading"}`}
                   />
 
                   <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-ink/50">
@@ -701,10 +931,9 @@ function GoldenRewriteForm({
 
             <button
               onClick={() => addSection(persona.key)}
-              disabled={sections.length >= MAX_SECTIONS_PER_PERSONA}
-              className="focus-ring mt-3 rounded border border-line px-3 py-1.5 text-xs font-medium text-ink/70 hover:border-brass hover:text-brass disabled:cursor-not-allowed disabled:opacity-30"
+              className="focus-ring mt-3 rounded border border-line px-3 py-1.5 text-xs font-medium text-ink/70 hover:border-brass hover:text-brass"
             >
-              + Add heading ({sections.length}/{MAX_SECTIONS_PER_PERSONA})
+              + Add heading
             </button>
           </div>
         );
