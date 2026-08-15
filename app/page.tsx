@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 import {
@@ -96,6 +96,82 @@ function checklistIsComplete(items: ChecklistItem[]): boolean {
   );
 }
 
+// ---------- Autosave / resume (browser-local only) ----------
+// Keyed by task type + email, so the same browser can hold separate drafts
+// per task and per person. This is stored in localStorage only — nothing
+// server-side reads or writes it, so it never leaves this browser and
+// doesn't follow someone to another device. Submitting doesn't clear it,
+// so reopening the task after submitting still shows the same answer
+// prefilled, ready to edit into a new attempt.
+
+type EvalDraft = {
+  scores: Record<ScoreKey, number>;
+  justifications: Record<ScoreKey, string>;
+  feedbackGeneral: string;
+  feedbackNewDimensions: string;
+};
+
+type GoldenRewriteDraft = {
+  personaAnswers: Record<PersonaKey, Section[]>;
+  personaChecklists: Record<PersonaKey, ChecklistItem[]>;
+};
+
+function isEvalDraft(d: unknown): d is EvalDraft {
+  if (!d || typeof d !== "object") return false;
+  const v = d as Record<string, unknown>;
+  return (
+    !!v.scores &&
+    !!v.justifications &&
+    typeof v.feedbackGeneral === "string" &&
+    typeof v.feedbackNewDimensions === "string"
+  );
+}
+
+function isGoldenRewriteDraft(d: unknown): d is GoldenRewriteDraft {
+  if (!d || typeof d !== "object") return false;
+  const v = d as Record<string, unknown>;
+  const answers = v.personaAnswers as Record<string, unknown> | undefined;
+  const checklists = v.personaChecklists as Record<string, unknown> | undefined;
+  return (
+    !!answers &&
+    !!checklists &&
+    Array.isArray(answers.rookie) &&
+    Array.isArray(checklists.rookie)
+  );
+}
+
+function draftKey(taskKind: TaskKind, email: string): string {
+  return `odyssey-draft:${taskKind}:${email.trim().toLowerCase()}`;
+}
+
+function loadDraft<T>(
+  taskKind: TaskKind,
+  email: string,
+  isValid: (d: unknown) => d is T
+): T | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(draftKey(taskKind, email));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return isValid(parsed) ? parsed : null;
+  } catch {
+    // Malformed or stale draft (e.g. from an older version of this form) —
+    // ignore it and start fresh rather than risk applying a broken shape.
+    return null;
+  }
+}
+
+function saveDraft(taskKind: TaskKind, email: string, data: unknown) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(draftKey(taskKind, email), JSON.stringify(data));
+  } catch {
+    // Autosave is a convenience — a write failure (storage full, disabled,
+    // private browsing quirks) should never break the task itself.
+  }
+}
+
 export default function Page() {
   const [step, setStep] = useState<Step>("gate");
   const [taskKind, setTaskKind] = useState<TaskKind>("evaluation");
@@ -146,6 +222,35 @@ export default function Page() {
       checklistIsComplete(personaChecklists[p.key]) &&
       personaAnswerIsComplete(personaAnswers[p.key])
   );
+
+  // Autosave (browser-local): while actively on the task screen, keep the
+  // current answer mirrored into localStorage so reloading — or coming back
+  // after submitting — picks up right where it left off.
+  useEffect(() => {
+    if (step !== "task" || taskKind !== "evaluation") return;
+    saveDraft(taskKind, email, {
+      scores,
+      justifications,
+      feedbackGeneral,
+      feedbackNewDimensions,
+    } satisfies EvalDraft);
+  }, [
+    step,
+    taskKind,
+    email,
+    scores,
+    justifications,
+    feedbackGeneral,
+    feedbackNewDimensions,
+  ]);
+
+  useEffect(() => {
+    if (step !== "task" || taskKind !== "golden_rewrite") return;
+    saveDraft(taskKind, email, {
+      personaAnswers,
+      personaChecklists,
+    } satisfies GoldenRewriteDraft);
+  }, [step, taskKind, email, personaAnswers, personaChecklists]);
 
   function addSection(persona: PersonaKey) {
     setPersonaAnswers((prev) => ({
@@ -328,6 +433,14 @@ export default function Page() {
     e.preventDefault();
   }
 
+  // Blocks paste everywhere, with no exemption. Paste only ever fires
+  // inside an editable field to begin with (there's nothing to paste into
+  // elsewhere on the page), so this forces every answer to be typed rather
+  // than pasted in from somewhere else.
+  function blockPaste(e: React.SyntheticEvent) {
+    e.preventDefault();
+  }
+
   return (
     <main
       className="mx-auto max-w-6xl select-none px-4 py-8 lg:px-8"
@@ -335,6 +448,7 @@ export default function Page() {
       onCut={blockCopyExceptFormFields}
       onContextMenu={blockCopyExceptFormFields}
       onDragStart={blockCopyExceptFormFields}
+      onPaste={blockPaste}
     >
       <Header taskKind={taskKind} />
 
@@ -364,6 +478,27 @@ export default function Page() {
               setError("Enter a valid email address before starting.");
               return;
             }
+
+            if (taskKind === "evaluation") {
+              const draft = loadDraft<EvalDraft>(taskKind, email, isEvalDraft);
+              if (draft) {
+                setScores(draft.scores);
+                setJustifications(draft.justifications);
+                setFeedbackGeneral(draft.feedbackGeneral);
+                setFeedbackNewDimensions(draft.feedbackNewDimensions);
+              }
+            } else {
+              const draft = loadDraft<GoldenRewriteDraft>(
+                taskKind,
+                email,
+                isGoldenRewriteDraft
+              );
+              if (draft) {
+                setPersonaAnswers(draft.personaAnswers);
+                setPersonaChecklists(draft.personaChecklists);
+              }
+            }
+
             startSession();
           }}
         />
