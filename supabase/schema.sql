@@ -207,3 +207,42 @@ for each row execute function public.set_submission_metadata();
 -- supersedes them — you can drop them if you'd rather rely on this instead:
 --   drop view if exists public.eval_submissions_latest;
 --   drop view if exists public.golden_rewrite_submissions_latest;
+
+-- ============================================================
+-- Per-persona scoring on the Evaluation task
+-- ============================================================
+-- Client confirmed: all three personas are scored on every eval task, not
+-- just one — intent recognition especially (and utility) can land
+-- differently depending on who's reading it. Each persona now gets its own
+-- full set of three dimension scores + justifications, stored the same way
+-- golden rewrite already stores its per-persona answers: one jsonb column
+-- per persona, shaped like
+--   {"intent_recognition": {"score": 4, "justification": "..."},
+--    "authority": {...}, "utility": {...}}
+
+alter table public.eval_submissions
+  add column if not exists rookie_scores jsonb not null default '{}'::jsonb,
+  add column if not exists mid_tier_scores jsonb not null default '{}'::jsonb,
+  add column if not exists experienced_scores jsonb not null default '{}'::jsonb;
+
+-- The old flat columns (one score/justification per dimension, no persona)
+-- are superseded by the three above. Rather than drop them and lose
+-- whatever's already in them, they're just relaxed to nullable so new
+-- inserts — which no longer populate them — don't get rejected by the old
+-- NOT NULL constraints. Their CHECK constraints are untouched, since a
+-- CHECK evaluates to "satisfied" on a null value, so leaving a column null
+-- never trips them.
+alter table public.eval_submissions
+  alter column score_intent_recognition drop not null,
+  alter column intent_recognition_justification drop not null,
+  alter column score_authority drop not null,
+  alter column authority_justification drop not null,
+  alter column score_utility drop not null,
+  alter column utility_justification drop not null;
+
+-- The "what worked well / what would you do differently" field was removed
+-- from the eval task, leaving only the optional "additional dimensions"
+-- feedback field. Dropped outright (not just relaxed) since it's no longer
+-- collected at all.
+alter table public.eval_submissions
+  drop column if exists feedback_general;

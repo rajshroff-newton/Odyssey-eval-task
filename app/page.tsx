@@ -22,17 +22,17 @@ const SCORE_DIMENSIONS = [
   {
     key: "intent_recognition",
     label: "Intent recognition",
-    help: "Is this what a retail reader who tapped this asset actually wants to know? A relevance question, not an accuracy one — a flawless module can still miss the reader's real questions.",
+    help: "Is this what this persona, tapping this asset, actually wants to know? A relevance question, not an accuracy one — a flawless module can still miss what this persona specifically needs.",
   },
   {
     key: "authority",
     label: "Authority",
-    help: "Does the content earn trust — internally consistent, conclusions the shown figures actually support, no invented certainty?",
+    help: "Does the content earn this persona's trust — internally consistent, conclusions the shown figures actually support, no invented certainty?",
   },
   {
     key: "utility",
     label: "Utility",
-    help: "Could the target reader act on this — clear levels or scenarios, diversity of evidence, language they can follow?",
+    help: "Could this persona act on this — clear levels or scenarios, diversity of evidence, language they specifically can follow?",
   },
 ] as const;
 
@@ -45,7 +45,6 @@ const SCORE_ANCHORS: Record<number, string> = {
 };
 
 const MIN_JUSTIFICATION_LEN = 40;
-const MIN_FEEDBACK_LEN = 40;
 
 type ScoreKey = (typeof SCORE_DIMENSIONS)[number]["key"];
 
@@ -105,9 +104,8 @@ function checklistIsComplete(items: ChecklistItem[]): boolean {
 // prefilled, ready to edit into a new attempt.
 
 type EvalDraft = {
-  scores: Record<ScoreKey, number>;
-  justifications: Record<ScoreKey, string>;
-  feedbackGeneral: string;
+  personaScores: Record<PersonaKey, Record<ScoreKey, number>>;
+  personaJustifications: Record<PersonaKey, Record<ScoreKey, string>>;
   feedbackNewDimensions: string;
 };
 
@@ -119,10 +117,13 @@ type GoldenRewriteDraft = {
 function isEvalDraft(d: unknown): d is EvalDraft {
   if (!d || typeof d !== "object") return false;
   const v = d as Record<string, unknown>;
+  const scores = v.personaScores as Record<string, unknown> | undefined;
+  const justifications = v.personaJustifications as Record<string, unknown> | undefined;
   return (
-    !!v.scores &&
-    !!v.justifications &&
-    typeof v.feedbackGeneral === "string" &&
+    !!scores &&
+    !!justifications &&
+    !!scores.rookie &&
+    !!justifications.rookie &&
     typeof v.feedbackNewDimensions === "string"
   );
 }
@@ -189,25 +190,53 @@ export default function Page() {
 
   const requiredAccessCode = process.env.NEXT_PUBLIC_TASK_ACCESS_CODE ?? "";
 
-  // Evaluation state
-  const [scores, setScores] = useState<Record<ScoreKey, number>>({
-    intent_recognition: 3,
-    authority: 3,
-    utility: 3,
-  });
-  const [justifications, setJustifications] = useState<Record<ScoreKey, string>>({
-    intent_recognition: "",
-    authority: "",
-    utility: "",
-  });
-  const [feedbackGeneral, setFeedbackGeneral] = useState("");
+  // Evaluation state — all three personas are scored on every eval task
+  // (confirmed with the client: not one persona per task), so each of the
+  // three dimensions is scored and justified separately per persona.
+  function emptyPersonaScores(): Record<PersonaKey, Record<ScoreKey, number>> {
+    const dims = { intent_recognition: 3, authority: 3, utility: 3 } as Record<
+      ScoreKey,
+      number
+    >;
+    return { rookie: { ...dims }, mid_tier: { ...dims }, experienced: { ...dims } };
+  }
+
+  function emptyPersonaJustifications(): Record<PersonaKey, Record<ScoreKey, string>> {
+    const dims = { intent_recognition: "", authority: "", utility: "" } as Record<
+      ScoreKey,
+      string
+    >;
+    return { rookie: { ...dims }, mid_tier: { ...dims }, experienced: { ...dims } };
+  }
+
+  const [personaScores, setPersonaScores] = useState<
+    Record<PersonaKey, Record<ScoreKey, number>>
+  >(emptyPersonaScores());
+  const [personaJustifications, setPersonaJustifications] = useState<
+    Record<PersonaKey, Record<ScoreKey, string>>
+  >(emptyPersonaJustifications());
   const [feedbackNewDimensions, setFeedbackNewDimensions] = useState("");
 
-  const justificationsOk = SCORE_DIMENSIONS.every(
-    (d) => justifications[d.key].trim().length >= MIN_JUSTIFICATION_LEN
+  function setScore(persona: PersonaKey, dimension: ScoreKey, value: number) {
+    setPersonaScores((prev) => ({
+      ...prev,
+      [persona]: { ...prev[persona], [dimension]: value },
+    }));
+  }
+
+  function setJustification(persona: PersonaKey, dimension: ScoreKey, value: string) {
+    setPersonaJustifications((prev) => ({
+      ...prev,
+      [persona]: { ...prev[persona], [dimension]: value },
+    }));
+  }
+
+  const justificationsOk = PERSONAS.every((p) =>
+    SCORE_DIMENSIONS.every(
+      (d) => personaJustifications[p.key][d.key].trim().length >= MIN_JUSTIFICATION_LEN
+    )
   );
-  const feedbackOk = feedbackGeneral.trim().length >= MIN_FEEDBACK_LEN;
-  const canSubmitEval = justificationsOk && feedbackOk;
+  const canSubmitEval = justificationsOk;
 
   // Golden rewrite state
   const [personaAnswers, setPersonaAnswers] = useState<Record<PersonaKey, Section[]>>(
@@ -229,18 +258,16 @@ export default function Page() {
   useEffect(() => {
     if (step !== "task" || taskKind !== "evaluation") return;
     saveDraft(taskKind, email, {
-      scores,
-      justifications,
-      feedbackGeneral,
+      personaScores,
+      personaJustifications,
       feedbackNewDimensions,
     } satisfies EvalDraft);
   }, [
     step,
     taskKind,
     email,
-    scores,
-    justifications,
-    feedbackGeneral,
+    personaScores,
+    personaJustifications,
     feedbackNewDimensions,
   ]);
 
@@ -339,22 +366,29 @@ export default function Page() {
     setSubmitting(true);
     setError(null);
 
+    function toScoresJson(persona: PersonaKey) {
+      const scores = personaScores[persona];
+      const justifications = personaJustifications[persona];
+      const out: Record<string, { score: number; justification: string }> = {};
+      for (const d of SCORE_DIMENSIONS) {
+        out[d.key] = {
+          score: scores[d.key],
+          justification: justifications[d.key].trim(),
+        };
+      }
+      return out;
+    }
+
     const payload = {
       attempter_name: name.trim(),
       attempter_email: email.trim(),
       task_id: EVAL_TASK_ID,
       session_id: sessionIdRef.current,
 
-      score_intent_recognition: scores.intent_recognition,
-      intent_recognition_justification: justifications.intent_recognition.trim(),
+      rookie_scores: toScoresJson("rookie"),
+      mid_tier_scores: toScoresJson("mid_tier"),
+      experienced_scores: toScoresJson("experienced"),
 
-      score_authority: scores.authority,
-      authority_justification: justifications.authority.trim(),
-
-      score_utility: scores.utility,
-      utility_justification: justifications.utility.trim(),
-
-      feedback_general: feedbackGeneral.trim(),
       feedback_new_dimensions: feedbackNewDimensions.trim() || null,
     };
 
@@ -482,9 +516,8 @@ export default function Page() {
             if (taskKind === "evaluation") {
               const draft = loadDraft<EvalDraft>(taskKind, email, isEvalDraft);
               if (draft) {
-                setScores(draft.scores);
-                setJustifications(draft.justifications);
-                setFeedbackGeneral(draft.feedbackGeneral);
+                setPersonaScores(draft.personaScores);
+                setPersonaJustifications(draft.personaJustifications);
                 setFeedbackNewDimensions(draft.feedbackNewDimensions);
               }
             } else {
@@ -512,12 +545,10 @@ export default function Page() {
 
           <div className="lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
             <EvalTaskForm
-              scores={scores}
-              setScores={setScores}
-              justifications={justifications}
-              setJustifications={setJustifications}
-              feedbackGeneral={feedbackGeneral}
-              setFeedbackGeneral={setFeedbackGeneral}
+              personaScores={personaScores}
+              setScore={setScore}
+              personaJustifications={personaJustifications}
+              setJustification={setJustification}
               feedbackNewDimensions={feedbackNewDimensions}
               setFeedbackNewDimensions={setFeedbackNewDimensions}
               canSubmit={canSubmitEval}
@@ -710,12 +741,10 @@ function StimulusPanel() {
 // ---------- Evaluation form ----------
 
 function EvalTaskForm({
-  scores,
-  setScores,
-  justifications,
-  setJustifications,
-  feedbackGeneral,
-  setFeedbackGeneral,
+  personaScores,
+  setScore,
+  personaJustifications,
+  setJustification,
   feedbackNewDimensions,
   setFeedbackNewDimensions,
   canSubmit,
@@ -723,12 +752,10 @@ function EvalTaskForm({
   error,
   onSubmit,
 }: {
-  scores: Record<ScoreKey, number>;
-  setScores: (s: Record<ScoreKey, number>) => void;
-  justifications: Record<ScoreKey, string>;
-  setJustifications: (j: Record<ScoreKey, string>) => void;
-  feedbackGeneral: string;
-  setFeedbackGeneral: (v: string) => void;
+  personaScores: Record<PersonaKey, Record<ScoreKey, number>>;
+  setScore: (persona: PersonaKey, dimension: ScoreKey, value: number) => void;
+  personaJustifications: Record<PersonaKey, Record<ScoreKey, string>>;
+  setJustification: (persona: PersonaKey, dimension: ScoreKey, value: string) => void;
   feedbackNewDimensions: string;
   setFeedbackNewDimensions: (v: string) => void;
   canSubmit: boolean;
@@ -739,85 +766,81 @@ function EvalTaskForm({
   return (
     <div className="space-y-6">
       <div className="rounded-lg border border-line bg-white p-5">
-        <h2 className="text-base font-semibold">Score the three dimensions</h2>
+        <h2 className="text-base font-semibold">Score all three personas</h2>
         <p className="mt-1 text-sm text-ink/60">
-          5 = ship to users as is. 1 = misleads or fails the reader outright.
-          Justify each score with something specific — name the section and
-          the figure or claim you're pointing to.
+          Score this module once per persona — intent recognition especially
+          can land very differently depending on who's reading it, and
+          utility often does too. 5 = ship to users as is. 1 = misleads or
+          fails the reader outright. Justify each score with something
+          specific — name the section and the figure or claim you're
+          pointing to.
         </p>
+      </div>
 
-        <div className="mt-5 space-y-6">
-          {SCORE_DIMENSIONS.map((d) => (
-            <div key={d.key} className="border-b border-line pb-5 last:border-0">
-              <p className="text-sm font-medium">{d.label}</p>
-              <p className="mt-0.5 text-sm text-ink/60">{d.help}</p>
-              <div className="mt-3 flex gap-2">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setScores({ ...scores, [d.key]: n })}
-                    className={`focus-ring flex h-9 w-9 items-center justify-center rounded border text-sm font-semibold ${
-                      scores[d.key] === n
-                        ? "border-brass bg-brass/10 text-brass"
-                        : "border-line text-ink/50 hover:border-ink/30"
+      {PERSONAS.map((persona) => (
+        <div key={persona.key} className="rounded-lg border border-line bg-white p-5">
+          <h3 className="text-base font-semibold">{persona.label}</h3>
+          <p className="mt-1 rounded border border-line bg-paper px-3 py-2 text-sm text-ink/70">
+            {persona.definition}
+          </p>
+
+          <div className="mt-5 space-y-6">
+            {SCORE_DIMENSIONS.map((d) => {
+              const score = personaScores[persona.key][d.key];
+              const justification = personaJustifications[persona.key][d.key];
+              return (
+                <div key={d.key} className="border-b border-line pb-5 last:border-0">
+                  <p className="text-sm font-medium">{d.label}</p>
+                  <p className="mt-0.5 text-sm text-ink/60">{d.help}</p>
+                  <div className="mt-3 flex gap-2">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => setScore(persona.key, d.key, n)}
+                        className={`focus-ring flex h-9 w-9 items-center justify-center rounded border text-sm font-semibold ${
+                          score === n
+                            ? "border-brass bg-brass/10 text-brass"
+                            : "border-line text-ink/50 hover:border-ink/30"
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-xs text-ink/40">{SCORE_ANCHORS[score]}</p>
+
+                  <label className="mt-3 block text-sm font-medium">
+                    Justify this score
+                  </label>
+                  <textarea
+                    className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
+                    rows={3}
+                    value={justification}
+                    onChange={(e) =>
+                      setJustification(persona.key, d.key, e.target.value)
+                    }
+                    placeholder="Point to the specific line or figure and say why it drove this score."
+                  />
+                  <span
+                    className={`mt-1 block text-right font-mono text-xs ${
+                      justification.trim().length >= MIN_JUSTIFICATION_LEN
+                        ? "text-ok"
+                        : "text-ink/40"
                     }`}
                   >
-                    {n}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-1 text-xs text-ink/40">
-                {SCORE_ANCHORS[scores[d.key]]}
-              </p>
-
-              <label className="mt-3 block text-sm font-medium">
-                Justify this score
-              </label>
-              <textarea
-                className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
-                rows={3}
-                value={justifications[d.key]}
-                onChange={(e) =>
-                  setJustifications({ ...justifications, [d.key]: e.target.value })
-                }
-                placeholder="Point to the specific line or figure and say why it drove this score."
-              />
-              <span
-                className={`mt-1 block text-right font-mono text-xs ${
-                  justifications[d.key].trim().length >= MIN_JUSTIFICATION_LEN
-                    ? "text-ok"
-                    : "text-ink/40"
-                }`}
-              >
-                {justifications[d.key].trim().length}/{MIN_JUSTIFICATION_LEN}
-              </span>
-            </div>
-          ))}
+                    {justification.trim().length}/{MIN_JUSTIFICATION_LEN}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      ))}
 
       <div className="rounded-lg border border-line bg-white p-5">
         <h2 className="text-base font-semibold">Feedback</h2>
 
-        <label className="mt-4 block text-sm font-medium">
-          What worked well, and what would you do differently
-        </label>
-        <textarea
-          className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
-          rows={5}
-          value={feedbackGeneral}
-          onChange={(e) => setFeedbackGeneral(e.target.value)}
-          placeholder="What did this module get right? What would you change, and how?"
-        />
-        <span
-          className={`mt-1 block text-right font-mono text-xs ${
-            feedbackGeneral.trim().length >= MIN_FEEDBACK_LEN ? "text-ok" : "text-ink/40"
-          }`}
-        >
-          {feedbackGeneral.trim().length}/{MIN_FEEDBACK_LEN}
-        </span>
-
-        <label className="mt-5 block text-sm font-medium">
+        <label className="mt-1 block text-sm font-medium">
           Should we score any additional dimensions? (optional)
         </label>
         <p className="mt-0.5 text-sm text-ink/60">
