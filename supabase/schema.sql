@@ -44,3 +44,36 @@ create policy "anon can insert submissions"
 -- Reads happen with the service role key only (e.g. the Supabase Table Editor,
 -- or an internal review dashboard you build later). Never expose the
 -- service role key in the app.
+
+-- ============================================================
+-- Golden rewrite submissions
+-- ============================================================
+
+create table if not exists public.golden_rewrite_submissions (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+
+  -- who
+  attempter_name text not null,
+  attempter_email text not null,
+  task_id text not null,           -- e.g. 'xauusdt-golden-rewrite-2026-08-12'
+
+  -- each persona's rewrite, stored as an array of {heading, bullets: string[]}
+  -- e.g. [{"heading": "Core Conclusion", "bullets": ["...", "..."]}, ...]
+  rookie_answer jsonb not null,
+  mid_tier_answer jsonb not null,
+  experienced_answer jsonb not null,
+
+  -- timing, for QA
+  total_seconds int
+);
+
+alter table public.golden_rewrite_submissions enable row level security;
+
+create policy "anon can insert golden rewrite submissions"
+  on public.golden_rewrite_submissions
+  for insert
+  to anon
+  with check (true);
+
+-- Reads happen with the service role key only, same as eval_submissions above.

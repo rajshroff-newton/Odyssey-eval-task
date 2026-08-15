@@ -3,9 +3,20 @@
 import { useRef, useState } from "react";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
-import { TASK } from "@/data/task";
+import {
+  MODULE_INFO,
+  EVAL_TASK_ID,
+  GOLDEN_REWRITE_TASK_ID,
+  PERSONAS,
+  SUGGESTED_HEADINGS,
+  MAX_SECTIONS_PER_PERSONA,
+  PersonaKey,
+  TaskKind,
+} from "@/data/task";
 
 type Step = "gate" | "task" | "done";
+
+// ---------- Evaluation task config ----------
 
 const SCORE_DIMENSIONS = [
   {
@@ -38,8 +49,30 @@ const MIN_FEEDBACK_LEN = 40;
 
 type ScoreKey = (typeof SCORE_DIMENSIONS)[number]["key"];
 
+// ---------- Golden rewrite task config ----------
+
+type Section = { heading: string; bullets: string };
+
+function emptyPersonaAnswers(): Record<PersonaKey, Section[]> {
+  return {
+    rookie: [{ heading: SUGGESTED_HEADINGS[0], bullets: "" }],
+    mid_tier: [{ heading: SUGGESTED_HEADINGS[0], bullets: "" }],
+    experienced: [{ heading: SUGGESTED_HEADINGS[0], bullets: "" }],
+  };
+}
+
+function personaIsComplete(sections: Section[]): boolean {
+  return (
+    sections.length > 0 &&
+    sections.every(
+      (s) => s.heading.trim().length > 0 && s.bullets.trim().length > 0
+    )
+  );
+}
+
 export default function Page() {
   const [step, setStep] = useState<Step>("gate");
+  const [taskKind, setTaskKind] = useState<TaskKind>("evaluation");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -50,6 +83,7 @@ export default function Page() {
 
   const requiredAccessCode = process.env.NEXT_PUBLIC_TASK_ACCESS_CODE ?? "";
 
+  // Evaluation state
   const [scores, setScores] = useState<Record<ScoreKey, number>>({
     intent_recognition: 3,
     authority: 3,
@@ -60,7 +94,6 @@ export default function Page() {
     authority: "",
     utility: "",
   });
-
   const [feedbackGeneral, setFeedbackGeneral] = useState("");
   const [feedbackNewDimensions, setFeedbackNewDimensions] = useState("");
 
@@ -68,9 +101,50 @@ export default function Page() {
     (d) => justifications[d.key].trim().length >= MIN_JUSTIFICATION_LEN
   );
   const feedbackOk = feedbackGeneral.trim().length >= MIN_FEEDBACK_LEN;
-  const canSubmit = justificationsOk && feedbackOk;
+  const canSubmitEval = justificationsOk && feedbackOk;
 
-  async function handleSubmit() {
+  // Golden rewrite state
+  const [personaAnswers, setPersonaAnswers] = useState<Record<PersonaKey, Section[]>>(
+    emptyPersonaAnswers()
+  );
+
+  const canSubmitGoldenRewrite = PERSONAS.every((p) =>
+    personaIsComplete(personaAnswers[p.key])
+  );
+
+  function addSection(persona: PersonaKey) {
+    setPersonaAnswers((prev) => {
+      const current = prev[persona];
+      if (current.length >= MAX_SECTIONS_PER_PERSONA) return prev;
+      const nextHeading = SUGGESTED_HEADINGS[current.length] ?? "";
+      return {
+        ...prev,
+        [persona]: [...current, { heading: nextHeading, bullets: "" }],
+      };
+    });
+  }
+
+  function removeSection(persona: PersonaKey, index: number) {
+    setPersonaAnswers((prev) => {
+      const current = prev[persona];
+      if (current.length <= 1) return prev;
+      return { ...prev, [persona]: current.filter((_, i) => i !== index) };
+    });
+  }
+
+  function updateSection(
+    persona: PersonaKey,
+    index: number,
+    patch: Partial<Section>
+  ) {
+    setPersonaAnswers((prev) => {
+      const current = prev[persona];
+      const next = current.map((s, i) => (i === index ? { ...s, ...patch } : s));
+      return { ...prev, [persona]: next };
+    });
+  }
+
+  async function handleSubmitEval() {
     setSubmitting(true);
     setError(null);
 
@@ -79,7 +153,7 @@ export default function Page() {
     const payload = {
       attempter_name: name.trim(),
       attempter_email: email.trim(),
-      task_id: TASK.taskId,
+      task_id: EVAL_TASK_ID,
 
       score_intent_recognition: scores.intent_recognition,
       intent_recognition_justification: justifications.intent_recognition.trim(),
@@ -101,7 +175,46 @@ export default function Page() {
       .insert(payload);
 
     setSubmitting(false);
+    if (insertError) {
+      setError(insertError.message);
+      return;
+    }
+    setStep("done");
+  }
 
+  async function handleSubmitGoldenRewrite() {
+    setSubmitting(true);
+    setError(null);
+
+    const totalSeconds = Math.round((Date.now() - startTimeRef.current) / 1000);
+
+    function toJsonAnswer(sections: Section[]) {
+      return sections.map((s) => ({
+        heading: s.heading.trim(),
+        bullets: s.bullets
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean),
+      }));
+    }
+
+    const payload = {
+      attempter_name: name.trim(),
+      attempter_email: email.trim(),
+      task_id: GOLDEN_REWRITE_TASK_ID,
+
+      rookie_answer: toJsonAnswer(personaAnswers.rookie),
+      mid_tier_answer: toJsonAnswer(personaAnswers.mid_tier),
+      experienced_answer: toJsonAnswer(personaAnswers.experienced),
+
+      total_seconds: totalSeconds,
+    };
+
+    const { error: insertError } = await supabase
+      .from("golden_rewrite_submissions")
+      .insert(payload);
+
+    setSubmitting(false);
     if (insertError) {
       setError(insertError.message);
       return;
@@ -111,7 +224,7 @@ export default function Page() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8 lg:px-8">
-      <Header />
+      <Header taskKind={taskKind} />
 
       {step === "gate" && (
         <GateScreen
@@ -119,6 +232,8 @@ export default function Page() {
           setName={setName}
           email={email}
           setEmail={setEmail}
+          taskKind={taskKind}
+          setTaskKind={setTaskKind}
           accessCode={accessCode}
           setAccessCode={setAccessCode}
           requiredAccessCode={requiredAccessCode}
@@ -143,13 +258,13 @@ export default function Page() {
         />
       )}
 
-      {step === "task" && (
+      {step === "task" && taskKind === "evaluation" && (
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[420px_1fr] lg:items-start">
           <div className="lg:sticky lg:top-6">
             <StimulusPanel />
           </div>
 
-          <TaskForm
+          <EvalTaskForm
             scores={scores}
             setScores={setScores}
             justifications={justifications}
@@ -158,10 +273,29 @@ export default function Page() {
             setFeedbackGeneral={setFeedbackGeneral}
             feedbackNewDimensions={feedbackNewDimensions}
             setFeedbackNewDimensions={setFeedbackNewDimensions}
-            canSubmit={canSubmit}
+            canSubmit={canSubmitEval}
             submitting={submitting}
             error={error}
-            onSubmit={handleSubmit}
+            onSubmit={handleSubmitEval}
+          />
+        </div>
+      )}
+
+      {step === "task" && taskKind === "golden_rewrite" && (
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[420px_1fr] lg:items-start">
+          <div className="lg:sticky lg:top-6">
+            <StimulusPanel />
+          </div>
+
+          <GoldenRewriteForm
+            personaAnswers={personaAnswers}
+            addSection={addSection}
+            removeSection={removeSection}
+            updateSection={updateSection}
+            canSubmit={canSubmitGoldenRewrite}
+            submitting={submitting}
+            error={error}
+            onSubmit={handleSubmitGoldenRewrite}
           />
         </div>
       )}
@@ -171,15 +305,17 @@ export default function Page() {
   );
 }
 
-function Header() {
+function Header({ taskKind }: { taskKind: TaskKind }) {
+  const label = taskKind === "evaluation" ? "Evaluation" : "Golden rewrite";
+  const taskId = taskKind === "evaluation" ? EVAL_TASK_ID : GOLDEN_REWRITE_TASK_ID;
   return (
     <header className="border-b border-line pb-4">
       <p className="font-mono text-xs uppercase tracking-wider text-brass">
-        {TASK.taskType} task · {TASK.taskId}
+        {label} task · {taskId}
       </p>
-      <h1 className="mt-1 text-2xl font-semibold text-ink">{TASK.module}</h1>
+      <h1 className="mt-1 text-2xl font-semibold text-ink">{MODULE_INFO.module}</h1>
       <p className="mt-1 text-sm text-ink/60">
-        {TASK.placement} · published {TASK.publishedAt}
+        {MODULE_INFO.placement} · published {MODULE_INFO.publishedAt}
       </p>
     </header>
   );
@@ -190,6 +326,8 @@ function GateScreen({
   setName,
   email,
   setEmail,
+  taskKind,
+  setTaskKind,
   accessCode,
   setAccessCode,
   requiredAccessCode,
@@ -200,6 +338,8 @@ function GateScreen({
   setName: (v: string) => void;
   email: string;
   setEmail: (v: string) => void;
+  taskKind: TaskKind;
+  setTaskKind: (t: TaskKind) => void;
   accessCode: string;
   setAccessCode: (v: string) => void;
   requiredAccessCode: string;
@@ -210,8 +350,8 @@ function GateScreen({
     <div className="mx-auto mt-10 max-w-md rounded-lg border border-line bg-white p-6">
       <h2 className="text-lg font-semibold">Before you start</h2>
       <p className="mt-2 text-sm text-ink/70">
-        You'll review the module, score it on three dimensions with a
-        justification for each, and leave feedback at the end.
+        Both tasks below use the same module. Both must be completed to join
+        the project — you can do them in either order, one at a time.
       </p>
 
       <label className="mt-5 block text-sm font-medium">Your name</label>
@@ -230,6 +370,21 @@ function GateScreen({
         onChange={(e) => setEmail(e.target.value)}
         placeholder="you@example.com"
       />
+
+      <label className="mt-4 block text-sm font-medium">
+        Which task would you like to do?
+      </label>
+      <select
+        className="focus-ring mt-1 w-full rounded border border-line bg-white px-3 py-2 text-sm"
+        value={taskKind}
+        onChange={(e) => setTaskKind(e.target.value as TaskKind)}
+      >
+        <option value="evaluation">Evaluation</option>
+        <option value="golden_rewrite">Golden rewrite</option>
+      </select>
+      <p className="mt-1 text-xs text-ink/50">
+        Both tasks must be completed to join the project.
+      </p>
 
       {requiredAccessCode && (
         <>
@@ -266,8 +421,8 @@ function StimulusPanel() {
 
       <div className="flex justify-center bg-paper p-4">
         <Image
-          src={TASK.screenshotSrc}
-          alt={TASK.screenshotAlt}
+          src={MODULE_INFO.screenshotSrc}
+          alt={MODULE_INFO.screenshotAlt}
           width={300}
           height={520}
           className="h-auto w-full max-w-[300px] rounded-xl border border-line"
@@ -277,7 +432,7 @@ function StimulusPanel() {
       <div className="max-h-[65vh] overflow-y-auto border-t border-line">
         <table className="w-full text-left text-sm">
           <tbody>
-            {TASK.fields.map((f) => (
+            {MODULE_INFO.fields.map((f) => (
               <tr key={f.field} className="border-b border-line align-top">
                 <td className="w-32 shrink-0 px-3 py-3 font-mono text-[11px] font-semibold uppercase tracking-wide text-brass">
                   {f.field}
@@ -294,7 +449,9 @@ function StimulusPanel() {
   );
 }
 
-function TaskForm({
+// ---------- Evaluation form ----------
+
+function EvalTaskForm({
   scores,
   setScores,
   justifications,
@@ -418,9 +575,142 @@ function TaskForm({
         />
       </div>
 
-      {error && (
-        <p className="text-sm text-warn">Couldn't submit: {error}</p>
-      )}
+      {error && <p className="text-sm text-warn">Couldn't submit: {error}</p>}
+
+      <div className="flex justify-end">
+        <button
+          disabled={!canSubmit || submitting}
+          onClick={onSubmit}
+          className="focus-ring rounded bg-ink px-4 py-2 text-sm font-medium text-paper hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          {submitting ? "Submitting…" : "Submit task"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Golden rewrite form ----------
+
+function GoldenRewriteForm({
+  personaAnswers,
+  addSection,
+  removeSection,
+  updateSection,
+  canSubmit,
+  submitting,
+  error,
+  onSubmit,
+}: {
+  personaAnswers: Record<PersonaKey, Section[]>;
+  addSection: (persona: PersonaKey) => void;
+  removeSection: (persona: PersonaKey, index: number) => void;
+  updateSection: (persona: PersonaKey, index: number, patch: Partial<Section>) => void;
+  canSubmit: boolean;
+  submitting: boolean;
+  error: string | null;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="rounded-lg border border-line bg-white p-5">
+        <h2 className="text-base font-semibold">Write the improved answer, per persona</h2>
+        <p className="mt-1 text-sm text-ink/60">
+          For each persona, write your rewrite as a heading followed by bullet
+          points — Core Conclusion, then its bullets; Macro Analysis, then its
+          bullets; and so on. Use the suggested headings or write your own if
+          they fit the asset better. Up to 4 headings per persona.
+        </p>
+        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-ink/60">
+          <li>Verify every number against reliable external market data before using it.</li>
+          <li>State risk plainly, in terms this persona can absorb.</li>
+          <li>Make each persona's version clearly different in content and framing, not just simpler wording.</li>
+          <li>Keep it about the length of the original module, or shorter.</li>
+        </ul>
+      </div>
+
+      {PERSONAS.map((persona) => {
+        const sections = personaAnswers[persona.key];
+        return (
+          <div key={persona.key} className="rounded-lg border border-line bg-white p-5">
+            <h3 className="text-base font-semibold">{persona.label}</h3>
+            <p className="mt-1 rounded border border-line bg-paper px-3 py-2 text-sm text-ink/70">
+              {persona.definition}
+            </p>
+
+            <div className="mt-4 space-y-4">
+              {sections.map((section, i) => (
+                <div key={i} className="rounded border border-line p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="block flex-1 text-xs font-semibold uppercase tracking-wide text-ink/50">
+                      Heading
+                    </label>
+                    {sections.length > 1 && (
+                      <button
+                        onClick={() => removeSection(persona.key, i)}
+                        className="focus-ring text-xs text-ink/40 hover:text-warn"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm font-medium"
+                    value={section.heading}
+                    onChange={(e) =>
+                      updateSection(persona.key, i, { heading: e.target.value })
+                    }
+                    placeholder={SUGGESTED_HEADINGS[i] ?? "Section heading"}
+                  />
+
+                  <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-ink/50">
+                    Bullet points — one per line
+                  </label>
+                  <textarea
+                    className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
+                    rows={3}
+                    value={section.bullets}
+                    onChange={(e) =>
+                      updateSection(persona.key, i, { bullets: e.target.value })
+                    }
+                    placeholder={"e.g.\nBNB is up about 6% over the past month.\nThe last few days have been quieter."}
+                  />
+
+                  {(section.heading.trim() || section.bullets.trim()) && (
+                    <div className="mt-3 rounded bg-paper p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-brass">
+                        Preview
+                      </p>
+                      <p className="mt-1 text-sm font-semibold">
+                        {section.heading.trim() || "(heading)"}
+                      </p>
+                      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-ink/80">
+                        {section.bullets
+                          .split("\n")
+                          .map((line) => line.trim())
+                          .filter(Boolean)
+                          .map((line, li) => (
+                            <li key={li}>{line}</li>
+                          ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={() => addSection(persona.key)}
+              disabled={sections.length >= MAX_SECTIONS_PER_PERSONA}
+              className="focus-ring mt-3 rounded border border-line px-3 py-1.5 text-xs font-medium text-ink/70 hover:border-brass hover:text-brass disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              + Add heading ({sections.length}/{MAX_SECTIONS_PER_PERSONA})
+            </button>
+          </div>
+        );
+      })}
+
+      {error && <p className="text-sm text-warn">Couldn't submit: {error}</p>}
 
       <div className="flex justify-end">
         <button
@@ -440,7 +730,7 @@ function DoneScreen() {
     <div className="mx-auto mt-10 max-w-md rounded-lg border border-line bg-white p-6 text-center">
       <h2 className="text-lg font-semibold">Submitted</h2>
       <p className="mt-2 text-sm text-ink/70">
-        Your evaluation has been recorded. You can close this tab.
+        Your work has been recorded. You can close this tab.
       </p>
     </div>
   );

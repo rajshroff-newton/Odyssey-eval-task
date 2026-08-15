@@ -1,6 +1,7 @@
-export const TASK = {
-  taskId: "xauusdt-macro-2026-08-12",
-  taskType: "Evaluation",
+export type TaskKind = "evaluation" | "golden_rewrite";
+
+// Shared across both task types — same stimulus, different work on top of it.
+export const MODULE_INFO = {
   module: "Gold macro report (XAUUSDT)",
   placement: "Market page, asset detail",
   publishedAt: "2026-08-12 20:23",
@@ -39,3 +40,40 @@ export const TASK = {
     },
   ],
 };
+
+export const EVAL_TASK_ID = "xauusdt-eval-2026-08-12";
+export const GOLDEN_REWRITE_TASK_ID = "xauusdt-golden-rewrite-2026-08-12";
+
+export type PersonaKey = "rookie" | "mid_tier" | "experienced";
+
+export const PERSONAS: { key: PersonaKey; label: string; definition: string }[] = [
+  {
+    key: "rookie",
+    label: "Rookie",
+    definition:
+      "Little to no prior investment experience. May have downloaded the app due to word-of-mouth rather than a specific strategy. Awareness is typically limited to major assets like BTC or BNB. Extremely low risk appetite.",
+  },
+  {
+    key: "mid_tier",
+    label: "Mid-tier",
+    definition:
+      "Has invested in US stocks or ETFs and tracks indices. Lacks a formal personal trading strategy and often relies on following external calls or recommendations. Generally avoids high-risk derivatives, futures, or volatile assets.",
+  },
+  {
+    key: "experienced",
+    label: "Experienced",
+    definition:
+      "Mature users comfortable with futures, derivatives, and high-volatility assets. Requires information density, specific trading levels, and scenarios.",
+  },
+];
+
+// Offered as starting points for each answer section's heading — attempters
+// can use these, reorder them, or write their own if it fits the asset better.
+export const SUGGESTED_HEADINGS = [
+  "Core Conclusion",
+  "Macro Analysis",
+  "Technical Analysis",
+  "Core Insight",
+];
+
+export const MAX_SECTIONS_PER_PERSONA = 4;
