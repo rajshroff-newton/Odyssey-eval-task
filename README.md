@@ -1,32 +1,23 @@
 # Odyssey Eval Task
 
-Two tasks built to spec from the Attempter Guidelines doc, run across three
-real modules split by domain:
+Three combined tasks, one per report (SOL, BTC, US100 — full report text as
+the stimulus, no screenshots). Each task is Part A (five-question evaluation
+per Attempter Guidelines v2.0: Q1 portrait fit against G1/G2/G3 + best fit,
+Q2 analytical soundness, Q3 sharpness via the sequential decision flow, Q4
+compliance, Q5 publishability) followed by Part B (Track 2 full rewrite:
+expert chooses the portrait, rewrites in full within ±20% of the original
+word count, data-integrity flag).
 
-- **Traditional finance** — Gold (XAUUSDT) for Evaluation, Energy (CLUSDT)
-  for Golden rewrite.
-- **Crypto** — BNB for both tasks.
+The attempter picks which report to do first on the start screen; all three
+must be completed. Answers autosave to localStorage (browser-local only) and
+resume on return, including after submitting. Copy/right-click is blocked
+outside form fields and paste is blocked everywhere.
 
-The attempter picks their domain first, then which task, on the start
-screen; that combination determines which module's screenshot + extracted
-table they see.
-
-- **Evaluation** — score three dimensions (intent recognition, authority,
-  utility) once per persona (Rookie, Mid-tier, Experienced — 9 scores
-  total), each with its own required justification, then an optional
-  additional-dimensions feedback box.
-- **Golden rewrite** — for each of the three personas, write a reasoning
-  checklist (step / observations / conclusion), then the improved answer as
-  any number of heading + bullet-point sections.
-
-Submissions post to Supabase, one table per task type — `task_id` alone
-tells you which domain and module a submission belongs to (e.g.
-`bnb-eval-2026-08-12` vs `xauusdt-eval-2026-08-12`), so no separate domain
-column was needed. Timing (how long a submission took) and attempt
-numbering (is this someone's 2nd, 3rd... try at a task) are both computed
-**server-side** in Postgres — see `supabase/schema.sql` for how — so neither
-can be affected by the browser's clock, a backgrounded tab, or edited client
-state.
+Submissions post to `report_submissions`. Timing is server-side in Postgres:
+session start (`task_sessions`), an `eval_complete` marker (`session_events`)
+when the attempter moves from evaluation to rewrite, and the insert itself —
+a trigger computes `total_seconds`, `eval_seconds`, and `rewrite_seconds`,
+plus `attempt_number` (case-insensitive on email). See `supabase/schema.sql`.
 
 ## Stack
 - Next.js 14 (App Router) + TypeScript + Tailwind

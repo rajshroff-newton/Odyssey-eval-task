@@ -247,3 +247,147 @@ alter table public.eval_submissions
 -- collected at all.
 alter table public.eval_submissions
   drop column if exists feedback_general;
+
+-- ============================================================
+-- Combined report tasks (SOL / BTC / US100): Part A evaluation
+-- + Track 2 rewrite in one submission, with server-side
+-- eval-phase vs rewrite-phase timing.
+-- ============================================================
+
+-- Phase markers. The client inserts one 'eval_complete' event when the
+-- attempter finishes Part A and moves to the rewrite. created_at comes from
+-- Postgres's clock, so the eval/rewrite time split is entirely server-side,
+-- like everything else here.
+create table if not exists public.session_events (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null references public.task_sessions(id),
+  event_type text not null,          -- 'eval_complete'
+  created_at timestamptz not null default now()
+);
+
+alter table public.session_events enable row level security;
+
+drop policy if exists "anon can insert session events" on public.session_events;
+create policy "anon can insert session events"
+  on public.session_events
+  for insert
+  to anon
+  with check (true);
+
+-- One row per completed combined task (evaluation + rewrite together).
+create table if not exists public.report_submissions (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+
+  attempter_name text not null,
+  attempter_email text not null,
+  task_id text not null,             -- e.g. 'sol-market-report-2026-08-18'
+  session_id uuid references public.task_sessions(id),
+  attempt_number int,
+
+  -- Q1 portrait fit: each portrait rated 1-3, plus best fit
+  q1_g1 int not null check (q1_g1 between 1 and 3),
+  q1_g2 int not null check (q1_g2 between 1 and 3),
+  q1_g3 int not null check (q1_g3 between 1 and 3),
+  q1_best_fit text not null,         -- 'G1' | 'G2' | 'G3' | 'none'
+  q1_note text,                      -- mandatory app-side when best fit = none or no 3
+
+  -- Q2 analytical soundness
+  q2_score int not null check (q2_score between 1 and 3),
+  q2_reason text,                    -- primary reason when score <= 2
+  q2_note text,                      -- mandatory app-side when score = 1
+
+  -- Q3 sharpness (derived from the sequential decision flow)
+  q3_score int not null check (q3_score between 1 and 5),
+  q3_step2_tag text,                 -- which step-2 leg failed, when score = 2
+
+  -- Q4 compliance
+  q4_score int not null check (q4_score between 1 and 3),
+  q4_note text,                      -- mandatory app-side when score = 1
+
+  -- Q5 publishability
+  q5_publishability text not null,   -- 'publishable' | 'publishable_after_revision' | 'not_publishable'
+
+  -- Part B: Track 2 full rewrite
+  rewrite_portrait text not null,    -- 'G1' | 'G2' | 'G3' (chosen by the expert)
+  rewrite_text text not null,
+  rewrite_word_count int not null,
+  original_word_count int not null,
+  data_integrity_flag boolean not null default false,
+  data_integrity_note text,
+
+  -- No-AI pledge: the app requires this to match the attempter's own name
+  -- before it will let them submit at all, so it should never actually be
+  -- empty in practice — but no not-null constraint here, since the pledge
+  -- is enforced app-side, not by the database.
+  no_ai_attestation_signature text,
+
+  -- Server-side timing, filled by trigger
+  total_seconds int,
+  eval_seconds int,
+  rewrite_seconds int
+);
+
+alter table public.report_submissions enable row level security;
+
+-- Safety net in case report_submissions was already created by an earlier
+-- run of this file, before the pledge field existed.
+alter table public.report_submissions
+  add column if not exists no_ai_attestation_signature text;
+
+drop policy if exists "anon can insert report submissions" on public.report_submissions;
+create policy "anon can insert report submissions"
+  on public.report_submissions
+  for insert
+  to anon
+  with check (true);
+
+-- Trigger: attempt numbering plus the three durations. All timestamps are
+-- Postgres's own (session start, eval_complete event, and this insert's
+-- now()), so nothing here can be influenced by the browser clock.
+-- SECURITY DEFINER for the same reason as set_submission_metadata above:
+-- the anon role has no SELECT policy on any of these tables, so the
+-- function's internal reads would otherwise silently return nothing.
+create or replace function public.set_report_submission_metadata()
+returns trigger
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  session_started_at timestamptz;
+  eval_done_at timestamptz;
+begin
+  select coalesce(max(attempt_number), 0) + 1 into new.attempt_number
+  from public.report_submissions
+  where lower(attempter_email) = lower(new.attempter_email)
+    and task_id = new.task_id;
+
+  if new.session_id is not null then
+    select started_at into session_started_at
+    from public.task_sessions
+    where id = new.session_id;
+
+    if session_started_at is not null then
+      new.total_seconds := extract(epoch from (now() - session_started_at))::int;
+
+      -- First eval_complete event for this session marks the phase split.
+      select min(created_at) into eval_done_at
+      from public.session_events
+      where session_id = new.session_id
+        and event_type = 'eval_complete';
+
+      if eval_done_at is not null then
+        new.eval_seconds := extract(epoch from (eval_done_at - session_started_at))::int;
+        new.rewrite_seconds := extract(epoch from (now() - eval_done_at))::int;
+      end if;
+    end if;
+  end if;
+
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists report_submissions_set_metadata on public.report_submissions;
+create trigger report_submissions_set_metadata
+before insert on public.report_submissions
+for each row execute function public.set_report_submission_metadata();

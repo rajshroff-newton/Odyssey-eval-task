@@ -1,238 +1,228 @@
-export type TaskKind = "evaluation" | "golden_rewrite";
-export type Domain = "traditional_finance" | "crypto";
+export type TaskKey = "sol" | "btc" | "us100";
+export type PortraitKey = "G1" | "G2" | "G3";
 
-export type ModuleField = { field: string; text: string };
+export type ReportSection = { heading: string; body: string };
 
-export type ModuleInfo = {
-  module: string;
-  placement: string;
-  publishedAt: string;
-  screenshotSrc: string;
-  screenshotAlt: string;
-  fields: ModuleField[];
+export type ReportTask = {
+  taskId: string;
+  label: string; // shown in the picker
+  title: string;
+  ticker: string;
+  category: string;
+  generatedAt: string;
+  sections: ReportSection[];
 };
 
-export type ModuleKey = "gold" | "energy" | "bnb";
+export function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
 
-export const MODULES: Record<ModuleKey, ModuleInfo> = {
-  gold: {
-    module: "Gold macro report (XAUUSDT)",
-    placement: "Market page, asset detail",
-    publishedAt: "2026-08-12 20:23",
-    screenshotSrc: "/xauusdt-screenshot.png",
-    screenshotAlt:
-      "Gold XAUUSDT module card showing price $4,428.53 (+0.70%), Core Conclusion, Macro Analysis, and Technical Analysis sections",
-    fields: [
+export function reportWordCount(task: ReportTask): number {
+  return wordCount(task.sections.map((s) => `${s.heading} ${s.body}`).join(" "));
+}
+
+export const TASK_ORDER: TaskKey[] = ["sol", "btc", "us100"];
+
+export const REPORTS: Record<TaskKey, ReportTask> = {
+  sol: {
+    taskId: "sol-market-report-2026-08-18",
+    label: "SOL Market Report",
+    title: "SOL Market Report",
+    ticker: "SOLUSDT",
+    category: "Crypto",
+    generatedAt: "2026-08-18 18:13:23 (UTC+8)",
+    sections: [
       {
-        field: "Snapshot",
-        text: "Displayed price: 4,428.53 (+0.70%). Last updated: 2026-08-12 20:23.",
+        heading: "Core Conclusion",
+        body: "SOL remains in a constructive consolidation at $75.90. Price is holding above key short- and medium-term moving averages, while institutional inflows, whale accumulation, and improving network fundamentals continue to support the broader setup.\n\nHowever, conviction remains limited: SOL is still in the lower third of its six-month range and trading volume has contracted to just 0.48x its 30-day average.\n\nNear-term bias: cautiously bullish while $73 holds. A sustained break above $80, ideally accompanied by stronger volume, would provide clearer confirmation of another upside leg.\n\n[SOL spot · SOLUSDT Trade entry card]",
       },
       {
-        field: "Core Conclusion",
-        text: "XAUUSDT is recovering, not breaking out. As of publication, price is $4,412.80, up +0.84% on the latest session, with turnover at $721.77M and volume at 163.78K. The rebound from $3,990.93 is approximately +10.58%, but price remains below the recent $4,439.54 high.\n\nMacro signals are mixed: U.S. Nonfarm Payrolls printed -23.00K versus 85.00K forecast and 20.00K previous; unemployment was 4.10% versus 4.20% forecast; Services PMI improved to 54.60 from 51.20, while ISM prices rose to 70.30 from 67.70. Fear and Greed stands at 39, unchanged week-on-week and up +2 month-on-month. The right-side trigger is a sustained break above $4,439.54; failure risks a retracement toward $4,300.",
+        heading: "Market Overview",
+        body: "SOL closed at $75.90, down 0.16% from the prior session, after trading in a narrow $75.20–$76.27 range.\n\nThe muted daily move points to consolidation rather than a decisive shift in trend. Short-term performance remains slightly soft, while the one-month structure is still constructive.\n\nDaily Change: -0.16% (Momentum remains muted)\nPrice Change: -$0.12 (Limited selling pressure)\n1-Week Performance: -0.50% (Short-term consolidation)\n1-Month Performance: +3.01% (Broader bias remains constructive)",
       },
       {
-        field: "Macro Analysis",
-        text: "History: Recent U.S. employment data weakened versus expectations. ADP employment was 44K, below the 68K expectation and 95K previous reading; nonfarm payrolls were -23K, far below the 85K expectation and 20K previous reading; unemployment was 4.10%, below the 4.20% expectation; average hourly earnings rose only 0.10%, below the 0.30% expectation. Services remained resilient: ISM Services PMI was 54.10, but the prices index climbed to 70.30, showing persistent services-inflation pressure.\n\nExpectation: Markets are focused on CPI on 2026-08-12, PPI and retail sales on 2026-08-13, the 10-year Treasury auction on 2026-08-12, and the 30-year Treasury auction on 2026-08-13. CPI is expected at +0.10% month-over-month and 3.40% year-over-year; core CPI at +0.20% month-over-month; PPI at +0.20% month-over-month. The prior auction yield shown in the source is 458.00 bps.\n\nReality: XAUUSDT is shown at $4,412.80, up about +0.83% from the prior close, with volume of 163.78K and turnover of $721.77M. Price has rebounded from $4,078.23, but remains below the previous high. Weak U.S. labor data and softer wage growth raise rate-cut expectations, which is supportive for gold; persistently high services inflation keeps real-rate pressure elevated and limits upside.",
+        heading: "What Is Driving SOL",
+        body: "1. Institutional demand remains the primary support\nETF inflows provide a more durable source of demand than short-term speculative flows. Continued institutional participation would strengthen the bullish case by improving the consistency of marginal buying.\n\n2. Whale accumulation reinforces positioning\nRecent large-holder accumulation suggests stronger conviction among concentrated investors. This supports sentiment in the near term, although it also makes the market more sensitive to any reversal in whale positioning.\n\n3. Network development strengthens the medium-term thesis\nOngoing network upgrades and expanded real-world payment infrastructure improve Solana's utility and execution capacity.\n\nProposed fee reforms could further strengthen SOL's token economics through increased burn, although their market impact will depend on implementation and actual network activity.\n\nKey Risk\nRegulatory uncertainty and uneven market participation remain the main constraints. Fundamental improvements alone may not be sufficient to drive a sustained breakout without stronger liquidity and broader risk appetite.",
       },
       {
-        field: "Technical Indicators",
-        text: "MA(10/25/99): $4,292.48 > $4,157.84; price $4,412.80 > MA99 $4,279.15. Bullish alignment.\n\nRSI(7): 75.34; overbought; momentum remains positive but crowded.\n\nMACD: DIF 80.87 > DEA 48.71; histogram 32.15, down from 36.95. Bullish, momentum easing.\n\nOBV: -133.43K; below the prior +150.84K peak. Volume confirmation is mixed.\n\nSupertrend(10,3): Bullish; trail at $4,178.15.",
+        heading: "Technical Setup",
+        body: "Trend: SOL is trading above both its 7-day MA at $75.60 and 10-day MA at $75.78. The 7-day MA also remains above the 25-day MA at $74.70, leaving the short-term trend constructive.\n\nRange: The six-month range is $60.13–$118.85. At $75.90, SOL sits in roughly the lower third of that range, showing that the recent recovery has not yet developed into a broader breakout.\n\nParticipation: Latest daily volume was 579.70K SOL, only 0.48x the previous 30-day average of 1.22M SOL.\n\nTechnical Read\nThe setup is constructive but not yet confirmed. Price is holding above key trend references, but weak participation and lower-range positioning suggest the current move is still better characterized as consolidation than a fully established bullish expansion.",
       },
       {
-        field: "Core Insight",
-        text: "MA, MACD and Supertrend confirm an advancing trend. RSI is overbought, while MACD energy is fading and OBV does not confirm a new high; near-term pullback risk is rising.",
+        heading: "What Changes the View",
+        body: "Bullish confirmation: A sustained break above $80, particularly on materially stronger volume, would strengthen the case for renewed upside momentum.\n\nBearish invalidation: A loss of $73 would weaken the current structure and suggest the recent consolidation is resolving lower.",
       },
       {
-        field: "Probability Assessment",
-        text: "1-3 periods: bullish 58%, bearish 42%.\n\n3-10 periods: bullish 64%, bearish 36%.\n\nTrend bias stays positive above $4,279.15; a break below $4,178.15 weakens the setup.",
+        heading: "Relevant Catalysts",
+        body: "Institutional demand (ETF inflows): Continued ETF participation would reinforce the report's primary bullish driver by providing more persistent marginal demand.\n\nWhale positioning ($3.60M SOL purchase): A Solana whale returned after two years with a sizeable SOL purchase, supporting the view that larger holders are selectively accumulating.\n\nNetwork adoption (MoneyGram expansion): MoneyGram expanded its Solana-based Ramps service to support app-based cash deposits in more than 25 markets and withdrawals across more than 170 markets, strengthening the network-utility narrative.",
       },
       {
-        field: "Additional Assessment",
-        text: "XAUUSDT - 2026-08-12. Price is $4,412.80, up +0.83%, with turnover of $721.77M and volume of 163.78K. The rebound from $4,078.23 is approximately +8.21%, but price remains below $4,439.54.\n\nTechnical structure remains constructive: price is above MA99 at $4,279.15, MACD is positive, and Supertrend support sits at $4,178.15. RSI at 75.34 signals an extended market; the MACD histogram has eased to 32.15 from 36.95, while OBV provides weak confirmation.\n\nMacro signals are mixed. Nonfarm payrolls were -23.00K versus 85.00K expected; unemployment 4.10% versus 4.20% expected. ISM prices rose to 70.30 from 67.70, preserving inflation risk. CPI is due on 2026-08-12, followed by PPI and retail sales on 2026-08-13.\n\nTrade plan: maintain a bullish bias above $4,279.15. Add only on a sustained break above $4,439.54. Failure to hold the trailing level risks a pullback toward $4,300.00; below $4,178.15 the setup weakens materially.",
+        heading: "Bottom Line",
+        body: "SOL's structure is improving, but the market has not yet produced enough volume or range expansion to confirm a decisive bullish breakout. $73 protects the current setup; $80 is the key confirmation level.",
       },
     ],
   },
 
-  energy: {
-    module: "Energy macro report (CLUSDT)",
-    placement: "Market page, asset detail",
-    publishedAt: "2026-08-12 20:26",
-    screenshotSrc: "/clusdt-screenshot.png",
-    screenshotAlt:
-      "Energy CLUSDT module card showing price $82.83 (+1.20%), Core Conclusion, Macro Analysis, and Technical Analysis sections",
-    fields: [
+  btc: {
+    taskId: "btc-market-report-2026-08-18",
+    label: "BTC Market Report",
+    title: "BTC Market Report",
+    ticker: "BTCUSDT",
+    category: "Crypto",
+    generatedAt: "2026-08-18 18:20:24 (UTC+8)",
+    sections: [
       {
-        field: "Snapshot",
-        text: "Displayed price: 82.83 (+1.20%). Last updated: 2026-08-12 20:26.",
+        heading: "Core Conclusion",
+        body: "BTC is caught between improving crypto-specific demand and restrictive macro liquidity.\n\nThe asset closed at $64,163.06, down 0.57%, while ETF demand and a softer U.S. dollar continue to provide fundamental support.\n\nHowever, elevated Treasury yields, weak trading volume, and an incomplete technical recovery are preventing that demand from translating into a convincing breakout.\n\nNear-term bias: neutral-to-bearish below $65,000. The current rebound lacks participation, so a sustained move above $65,000 on stronger volume is needed before the setup turns convincingly bullish.\n\n[BTC spot · BTCUSDT Trade entry card]",
       },
       {
-        field: "Core Conclusion",
-        text: "As of publication, CLUSDT trades at $82.73, +0.10% on the session, but remains -17.06% below the 100-session starting level. Latest volume is 4.36M, with turnover at $360.19M - lower than the recent expansion phase. Price is holding above $80.00, yet the rebound lacks confirmation above $84.00.\n\nCrypto sentiment remains subdued at 39, unchanged from last week. U.S. data are mixed: ADP employment was 44K versus 95K previously, while nonfarm payrolls fell by 23K; services activity held at 54.10, and prices rose to 70.30. Risk remains skewed to failed rebounds unless volume broadens.",
+        heading: "Market Overview",
+        body: "BTC closed at $64,163.06, down 0.57%, after trading between $64,047.73 and $64,568.46.\n\nThe narrow session range and modest decline point to consolidation rather than aggressive selling.\n\nBTC remains up 1.77% over five days, but only 0.28% over 20 days, showing that the recent rebound has yet to develop into a clear medium-term trend.\n\nDaily Change: -0.57% (Mild selling pressure)\nPrice Change: -$369.04 (Weak close)\n5-Day Performance: +1.77% (Recent rebound intact)\n20-Day Performance: +0.28% (Broader trend remains mixed)",
       },
       {
-        field: "Macro Analysis",
-        text: "CLUSDT - as of publication.\n\nHistory: CLUSDT rose from $68.30 to $92.27, then retraced to $80.31 before stabilizing at $82.73. The latest session gained +0.10%, but volume contracted to $360.19M, indicating weaker follow-through.\n\nExpectation: U.S. data had been positioned for softer labor momentum: payrolls at 85K, unemployment at 4.20%, CPI at 3.40%, and crude inventories falling by 1.70M barrels. The 10-year auction's prior yield was 458.00 bps.\n\nReality: Payrolls fell -23K, hourly earnings rose only 0.10%, and unemployment improved to 4.10%. Services remained expansionary at 54.10, while prices rose to 70.30. Crude inventories instead increased by 2.48M barrels. The combination is growth-negative for risk assets but not immediately disinflationary.\n\nOutlook: Upcoming CPI, PPI, retail sales, jobless claims, bond auctions, and inventories will determine whether rate sensitivity or supply-demand fundamentals dominate. Above $84.00, momentum may rebuild; failure to hold $80.00 keeps the structure vulnerable to renewed selling pressure.",
+        heading: "What Is Driving BTC",
+        body: "1. ETF demand is the strongest crypto-specific support\nInstitutional ETF flows provide a persistent source of marginal demand and can help BTC absorb available supply. This remains the clearest positive structural driver, particularly if institutional exposure continues expanding.\n\n2. A softer dollar improves the liquidity backdrop\nDollar weakness reduces currency headwinds for global investors and generally improves financial conditions for risk assets. For BTC, this complements ETF demand by creating a more supportive external liquidity environment.\n\n3. High Treasury yields remain the main macro constraint\nElevated yields increase the opportunity cost of holding non-yielding assets and tighten overall financial conditions. This creates the central tension in the current BTC setup: crypto-specific demand is improving, but macro liquidity remains restrictive.\n\n4. Weak market participation limits conviction\nCurrent trading volume is substantially below recent norms. That matters because low-volume rallies are more vulnerable to reversal: relatively small order flows can move price, but those moves provide weaker evidence of broad market conviction.\n\nKey Risk\nRegulatory progress could further strengthen institutional participation, but security incidents, reduced corporate accumulation, or renewed macro tightening could offset that support.",
       },
       {
-        field: "Technical Indicators",
-        text: "MA(10/25/99): price is below MA25 $82.73 and MA99 $83.93; bearish structure; short MA $78.83 is rising.\n\nRSI(7): 60.60, above 50 but below 70; recovery momentum, not overbought.\n\nMACD: DIF -$0.05 below DEA approximately -$0.00; histogram -$0.05, negative but contracting.\n\nOBV: -19.75M, improving from -48.11M; accumulation recovery, volume confirmation incomplete.\n\nSupertrend: Bearish; resistance stop reference $88.08.",
+        heading: "Technical Setup",
+        body: "Trend: BTC is above both its 7-day MA at $63,527.94 and 25-day MA at $63,935.07, showing that price has recovered above important short- and medium-term reference levels.\n\nHowever, the 7-day MA remains below the 25-day MA. That means price has improved faster than the underlying moving-average structure: the rebound is visible, but the trend itself has not yet fully turned bullish.\n\nRange: BTC's six-month range is $57,800.19–$82,850.00. At $64,163.06, BTC remains in the lower portion of that range, leaving the broader structure relatively subdued.\n\nParticipation: Latest daily volume was 5.63K BTC, versus a 30-day average of 13.96K BTC, or just 0.40x normal volume.\n\nTechnical Read\nThe current move looks more like a low-conviction recovery than a confirmed trend reversal. Price has reclaimed both moving averages, which is constructive, but the moving-average structure, range position, and weak participation all argue against treating the rebound as a clean bullish breakout.",
       },
       {
-        field: "Core Insight",
-        text: "RSI and OBV support a tactical rebound. MACD remains negative, while price is below MA25/MA99 and Supertrend is bearish. Signals conflict; recovery momentum lacks trend confirmation.",
+        heading: "What Changes the View",
+        body: "Bullish confirmation: A sustained break above $65,000, accompanied by a meaningful increase in volume, would strengthen the case that the recovery is becoming a genuine trend move.\n\nBearish continuation: Failure to hold the current moving-average cluster would weaken the recovery and increase the risk of another move toward the lower end of the recent range.",
       },
       {
-        field: "Bull/Bear Probability Assessment",
-        text: "1-3 periods: bullish 55% / bearish 45% - RSI above 50 and OBV recovery favor rebounds; $83.93 is the first trend test.\n\n3-10 periods: bullish 40% / bearish 60% - MA25/MA99 overhead and bearish Supertrend cap upside unless price reclaims $88.08.",
+        heading: "Relevant Catalysts",
+        body: "Institutional demand (Jane Street ETF exposure): Reported Bitcoin ETF holdings of more than $1.00B reinforce the thesis that institutional participation remains an important source of structural demand.\n\nLiquidity risk (low-volume rally): Recent BTC gains have occurred alongside weak participation, consistent with the report's view that the current recovery lacks strong confirmation.\n\nBreakout catalyst (range consolidation): BTC remains in a consolidation phase, making a confirmed break of the current range more informative than small moves within it.",
       },
       {
-        field: "Momentum Fades",
-        text: "Price is $82.73, +0.10%, but remains -17.06% below the 100-session baseline. Volume contracted to 4.36M, with turnover of $360.19M. RSI(7) at 60.60 and improving OBV support a tactical rebound; negative MACD, overhead MA25/MA99, and bearish Supertrend limit confirmation.\n\nTrade plan: hold only above $80.00. A reclaim of $84.00 with expanding volume may target $88.08. Failure below $80.00 invalidates the rebound setup. Short-term bias is cautiously constructive; the 3-10-session structure remains bearish.",
+        heading: "Bottom Line",
+        body: "BTC has regained important technical levels, but the rebound is not yet backed by enough participation to call a durable trend reversal. Institutional demand provides support; restrictive macro conditions and weak volume limit conviction. Above $65,000 with stronger volume, the picture improves materially.",
+      },
+    ],
+  },
+
+  us100: {
+    taskId: "us100-market-report-2026-08-18",
+    label: "US100 Market Report",
+    title: "US100 Market Report",
+    ticker: "EQ_US100",
+    category: "Equity · ETF (index)",
+    generatedAt: "2026-08-18 18:03:22 (UTC+8)",
+    sections: [
+      {
+        heading: "Core Conclusion",
+        body: "US100 is undergoing a short-term correction within a still-constructive medium-term trend.\n\nThe index closed at $29,731.12, down 1.11%, as elevated Treasury yields and persistent inflation pressure continued to weigh on long-duration technology valuations.\n\nThe key tension is now clear: higher yields are compressing valuations, while softer consumption is weakening growth expectations without yet providing enough disinflation to justify rapid monetary easing.\n\nNear-term bias: bearish below $30,000, with $29,000 the next meaningful downside area. The broader trend remains constructive unless the correction begins to break the medium-term structure.\n\n[US100 stock · EQ_US100 Trade entry card]",
+      },
+      {
+        heading: "Market Overview",
+        body: "US100 fell 1.11%, or $334.45, closing at $29,731.12 after trading between $29,713.29 and $30,088.82.\n\nThe close near the lower end of the session range indicates renewed short-term selling pressure.\n\nAt the same time, the index remains up 8.54% over one month, meaning the current weakness is better viewed as a correction within a broader advance rather than a confirmed medium-term reversal.\n\nDaily Change: -1.11% (Short-term selling pressure)\nPrice Change: -$334.45 (Weak session)\n1-Week Performance: -1.44% (Correction underway)\n1-Month Performance: +8.54% (Broader uptrend remains intact)",
+      },
+      {
+        heading: "What Is Driving US100",
+        body: "1. Treasury yields are the dominant near-term driver\nThe 30-year Treasury yield reached 5.31%, while the latest auction cleared near 5.22%. For a technology-heavy index, this matters directly: higher risk-free rates increase the discount rate applied to long-duration earnings, putting pressure on equity valuations even when company fundamentals remain unchanged. Heavy Treasury supply and weaker foreign demand are also keeping term premiums elevated, reinforcing the rate headwind.\n\n2. Inflation remains too sticky for an easy policy pivot\nU.S. CPI held at 3.40% YoY and 0.10% MoM. Inflation is no longer accelerating sharply, but it remains high enough to constrain the Federal Reserve's ability to ease policy aggressively. That leaves US100 exposed to a \"higher-for-longer\" rate environment.\n\n3. Growth is weakening at an awkward time\nRetail sales fell 0.60% MoM, while core retail sales declined 0.30%. Normally, weaker consumption could support expectations for easier monetary policy. But with inflation still elevated, softer growth currently creates a less favorable combination: slower demand without immediate relief from high discount rates.\n\n4. FOMC communication is the next catalyst\nThe upcoming FOMC minutes are important because the market needs clarity on whether policymakers are becoming more concerned about slowing growth or remain primarily focused on inflation persistence. A hawkish interpretation would likely keep yields elevated and prolong valuation pressure. A more dovish signal could reduce the discount-rate headwind, but follow-through would still require confirmation from subsequent inflation and labor-market data.",
+      },
+      {
+        heading: "Technical Setup",
+        body: "Short-term trend: US100 is below its 10-day MA at $29,897.91, confirming that near-term momentum has weakened.\n\nMedium-term trend: Price remains above the 20-day MA at $29,467.09, while the 10-day MA remains above the 20-day MA. This creates a mixed but coherent structure: short-term corrective, medium-term constructive.\n\nRange: The six-month range is $26,524.21–$30,759.71. At $29,731.12, US100 remains in the upper portion of that range, reinforcing the view that the broader advance has not yet been invalidated.\n\nTechnical Read\nThe index has lost short-term momentum, but the decline has not yet become a structural medium-term breakdown. The current setup therefore favors caution rather than outright trend reversal.",
+      },
+      {
+        heading: "What Changes the View",
+        body: "Bullish recovery: A decisive reclaim of $30,000 would reduce immediate downside pressure and suggest buyers are regaining control.\n\nBearish continuation: Failure to stabilize above the 20-day moving average would increase the probability of a deeper correction toward $29,000.",
+      },
+      {
+        heading: "Relevant Catalysts",
+        body: "Treasury yields (valuation pressure): The 30-year yield rose to 5.31%, reinforcing the central bearish mechanism for technology valuations.\n\nRetail sales (growth risk): July retail sales contracted 0.60% MoM, strengthening evidence that consumer momentum is weakening.\n\nGeopolitical risk (inflation channel): Renewed U.S.-Iran tensions and disruption around the Strait of Hormuz have supported higher energy prices, creating an additional risk that inflation remains sticky and complicates the Fed's policy path.",
+      },
+      {
+        heading: "Bottom Line",
+        body: "US100's near-term setup has turned bearish, but the broader trend has not yet broken. Elevated yields remain the key pressure point: below $30,000, the correction can extend toward $29,000; a sustained reclaim of $30,000 would materially improve the short-term outlook.",
       },
     ],
   },
-
-  bnb: {
-    module: "Crypto macro report (BNB)",
-    placement: "Market page, asset detail",
-    publishedAt: "2026-08-12 20:23",
-    screenshotSrc: "/bnb-screenshot.png",
-    screenshotAlt:
-      "Crypto BNB module card showing price $614.99 (+0.35%), Core Conclusion, Macro Analysis, and Technical Analysis sections",
-    fields: [
-      {
-        field: "Snapshot",
-        text: "Displayed price: 614.99 (+0.35%). Last updated: 2026-08-12 20:23.",
-      },
-      {
-        field: "Core Conclusion",
-        text: "BNB closed at $615.07, up +5.70% over the 30-session sample, but eased -0.26% on the latest session. Turnover contracted to 67.70K BNB and $41.59M, versus $86.62M previously, indicating weaker confirmation near the $620.55 high.\n\nMomentum remains constructive above $600.00, while a close below that level would weaken the right-side setup. The crypto Fear & Greed Index is 39, consistent with restrained risk appetite.\n\nRecent U.S. data show payrolls at -23.00K versus 85.00K expected, unemployment at 4.10%, and ISM services prices at 70.30. Macro signals are mixed; no directional conclusion is assumed.",
-      },
-      {
-        field: "Macro Analysis",
-        text: "BNB latest close: $615.07, -0.26% daily; volume: 67.70K; turnover: $41.59M. After recovering from $551.07, price is consolidating below $620.55, while participation remains below the recent impulse peak. This is a right-side test, not a confirmed trend reversal.\n\nHistory: U.S. services activity stayed expansionary: S&P Global Services PMI at 54.60 versus 51.20 previously; ISM Services PMI at 54.10 versus 54.00. However, ISM prices rose to 70.30 from 67.70. Labor data weakened: ADP employment was 44K versus 95K, while payrolls printed -23K versus 20K; unemployment improved marginally to 4.10% from 4.20%.\n\nExpectation: Core CPI, CPI, PPI, retail sales, jobless claims, and Treasury auctions are due from 2026-08-13. CPI is forecast at 0.10% month-over-month and 3.40% year-over-year; core CPI at 0.20%. The prior 10-year auction yield was 458 bps and the 30-year auction yield was 505.80 bps.\n\nReality: Weak payrolls and softer wages reduce growth support, but elevated service prices preserve rate sensitivity. For BNB, liquidity conditions remain the dominant transmission channel. Holding $600.00 keeps the rebound structure intact; a break below it would expose $575.00. Sustained trade above $620.55 requires stronger volume and benign inflation data.",
-      },
-      {
-        field: "Technical Analysis",
-        text: "BNB Technical Report - 2026-08-12. Latest close: $615.07; daily change: -0.26%; volume: 67.70K BNB; turnover: $41.59M.",
-      },
-      {
-        field: "Technical Indicators",
-        text: "MA(10/25/99): $599.52 / $584.45 / [third MA value is truncated in the source screenshot].\n\nRSI(7): 76.52.\n\nMACD: DIF 8.89, DEA 5.74, histogram 3.15.\n\nOBV: -584.53K.\n\nSupertrend(10,3): Bullish; $576.35.",
-      },
-      {
-        field: "Core Insight",
-        text: "MA10 > MA25 and positive MACD confirm short-term upside momentum. Supertrend has turned bullish. RSI is overbought, while OBV has softened; this creates a momentum-versus-participation conflict. A break above $620.55 would improve confirmation; loss of $604.44 weakens the setup.",
-      },
-      {
-        field: "Probability Assessment",
-        text: "1-3 cycles: bullish 58%, bearish 42%.\n\n3-10 cycles: bullish 55%, bearish 45%. Bias remains constructive, but overbought RSI and sub-MA99 positioning cap conviction.",
-      },
-    ],
-    // NOTE: the source screenshot for this module was cut off after
-    // Probability Assessment (a scroll indicator was visible past this
-    // point) — there may be an Additional Assessment / trade-plan section
-    // like the other two modules have that isn't captured here. Add it to
-    // the fields array above if/when the full table is available.
-  },
 };
 
-// Which module serves which task, per domain. Traditional finance splits
-// across two modules (Gold for Evaluation, Energy for Golden rewrite);
-// crypto uses the one crypto module for both task types.
-export const DOMAIN_TASK_MODULE: Record<Domain, Record<TaskKind, ModuleKey>> = {
-  traditional_finance: { evaluation: "gold", golden_rewrite: "energy" },
-  crypto: { evaluation: "bnb", golden_rewrite: "bnb" },
+// ---------- The three Binance user portraits (guidelines v2.0) ----------
+
+export type Portrait = {
+  key: PortraitKey;
+  label: string;
+  band: string;
+  script: string;
+  wants: string;
+  loses: string;
+  mustExplain: string;
+  actionCeiling: string;
+  riskFraming: string;
+  rewriteMust: string;
 };
 
-export const TASK_IDS: Record<Domain, Record<TaskKind, string>> = {
-  traditional_finance: {
-    evaluation: "xauusdt-eval-2026-08-12",
-    golden_rewrite: "clusdt-golden-rewrite-2026-08-12",
-  },
-  crypto: {
-    evaluation: "bnb-eval-2026-08-12",
-    golden_rewrite: "bnb-golden-rewrite-2026-08-12",
-  },
-};
-
-export type PersonaKey = "rookie" | "mid_tier" | "experienced";
-
-export const PERSONAS: { key: PersonaKey; label: string; definition: string }[] = [
+export const PORTRAITS: Portrait[] = [
   {
-    key: "rookie",
-    label: "Rookie",
-    definition:
-      "Little to no prior investment experience. May have downloaded the app due to word-of-mouth rather than a specific strategy. Awareness is typically limited to major assets like BTC or BNB. Extremely low risk appetite.",
-  },
-  {
-    key: "mid_tier",
-    label: "Mid-tier",
-    definition:
-      "Has invested in US stocks or ETFs and tracks indices. Lacks a formal personal trading strategy and often relies on following external calls or recommendations. Generally avoids high-risk derivatives, futures, or volatile assets.",
+    key: "G1",
+    label: "G1 Novice",
+    band: "Sharpness 2 to 3",
+    script:
+      "I opened a crypto account about four months ago after a friend told me to. I've bought BTC and ETH, and one smaller coin I saw on social media that's now down 40%. Around $800 in total. I check the app most days, mostly to see if I'm up or down. I've seen the Futures tab and I've avoided it deliberately. I've been curious about gold lately because everyone says it's safer. When something big happens in the news I want to know whether it affects me and whether I should be worried. I don't want to be told what to do. I want to understand what's going on.",
+    wants:
+      "Orientation and reassurance: is something happening that affects my money, and should I be worried or relaxed about it?",
+    loses:
+      "Three unfamiliar terms in the first two sentences; a price trigger with no explanation of what to do with it or what happens if it's wrong.",
+    mustExplain:
+      "Funding rate; open interest; liquidation; leverage mechanics; perpetual/basis; TVL; support and resistance; RSI and moving averages; real interest rates; basis points; gold/silver ratio; contango/roll; ETF vs. stock; DXY; CPI, NFP, FOMC (name and mechanism); risk-on/risk-off.",
+    actionCeiling:
+      "Directional takeaway plus what to watch. No entries, stops, targets, or leverage tactics, ever.",
+    riskFraming: "Mandatory, plain language, prominent.",
+    rewriteMust:
+      "A plain-language takeaway, every term from the G1 must-explain list handled in line, prominent plain risk framing. No entries, stops, targets, or leverage tactics.",
   },
   {
-    key: "experienced",
-    label: "Experienced",
-    definition:
-      "Mature users comfortable with futures, derivatives, and high-volatility assets. Requires information density, specific trading levels, and scenarios.",
+    key: "G2",
+    label: "G2 Experienced trader",
+    band: "Sharpness 3 to 4",
+    script:
+      "Script A (crypto-native): I've been trading crypto for a couple of years. I run perps at 3 to 5x, I watch funding when I hold overnight. Maybe 40 trades a month across 8 or 10 assets. I mark my levels and I always know where I'm wrong before I enter. I've started trading gold and Nasdaq here too. The charts work the same way, but honestly I don't really know why gold does what it does around Fed meetings. Script B (multi-platform): Crypto is where I'm most active day to day, but it isn't my only market. I've had a brokerage account for years. I hold US equities, I write covered calls, I've traded ETFs through two cycles. What I don't need is a report explaining CPI to me. Same ask as anyone else here: what's the setup and where am I wrong.",
+    wants:
+      "A setup with an invalidation level: is there a setup here, what's actually driving it, and where am I wrong?",
+    loses:
+      "Hedged both-sides language that resolves to nothing; a directional view with no level attached; being taught something they already know.",
+    mustExplain:
+      "Macro mechanisms only, as an inline gloss of 5 to 12 words embedded in the sentence that uses them (why real yields drive gold, gold/silver ratio, contango, DXY mechanics, why Nasdaq and BTC co-move). Never a teaching paragraph, never omitted where the mechanism carries the argument. Trading terms are never explained.",
+    actionCeiling: "Levels, triggers, invalidation. Scenario paths fine.",
+    riskFraming: "Present as an invalidation condition.",
+    rewriteMust:
+      "Direction plus driver plus invalidation level. Trading structure assumed. Any macro mechanism that carries the argument appears as an inline gloss of 5 to 12 words. No basics.",
+  },
+  {
+    key: "G3",
+    label: "G3 Professional",
+    band: "Sharpness 4 to 5",
+    script:
+      "I trade full time or I do this professionally. Six-figure book minimum, often larger. I run basis and funding carry trades, I hedge with options, I use the API. I think in cross-asset terms: real yields, DXY, term structure, positioning. I already know today's data prints and where consensus sits before I open anything you send me. If a report tells me what happened, it has wasted my time. The only thing worth my attention is a differentiated read: a data series I'm not watching, or an argument that the consensus interpretation is wrong.",
+    wants:
+      "A differentiated, contestable read: what's the non-consensus angle, what is the market mispricing, and what's the evidence?",
+    loses:
+      "Anything they already know; generic macro recitation; an unsourced claim; a view with no falsification condition.",
+    mustExplain:
+      "Nothing. Explanation is noise. What earns attention is a data series they may not be tracking, and that must be sourced, not asserted.",
+    actionCeiling: "Full relative-value and structural expression.",
+    riskFraming: "Assumed; state it as falsification.",
+    rewriteMust:
+      "Explicit trigger (if [indicator] [threshold] then [view changes]), price boundaries, at least one instrument-specific factor, full scenario paths. Target 5 where you can support a sourced mispricing thesis.",
   },
 ];
 
-// Offered as starting points for each answer section's heading — attempters
-// can use these, write their own, or mix both. There's no fixed count;
-// use as many as the asset and persona genuinely call for.
-export const SUGGESTED_HEADINGS = [
-  "Core Conclusion",
-  "Macro Analysis",
-  "Technical Analysis",
-  "Core Insight",
+// ---------- Q2 reason lists ----------
+
+export const Q2_UNSOUND_REASONS = [
+  "Causal direction is wrong (inference runs opposite to market mechanics)",
+  "Transmission chain missing a critical link (jumps A to C)",
+  "Conclusion contradicts the data the report itself cites",
+  "Contradicts market consensus or historical regularity with no explanation for the anomaly",
 ];
 
-// Shown above each persona's reasoning checklist in the golden rewrite form —
-// modeled as a step-by-step chain of thought (observation, then conclusion),
-// not just a flat list of topics to cover.
-export type ChecklistExampleStep = {
-  step: string;
-  observations: string;
-  conclusion: string;
-};
-
-export const CHECKLIST_EXAMPLE: ChecklistExampleStep[] = [
-  {
-    step: "Evaluate price and volume movements since the last session.",
-    observations:
-      "Price moved +3.2% while volume increased by 15% relative to the 20-day average.",
-    conclusion:
-      "Strong buying demand confirmed by above-average volume — a firmer signal than a low-volume drift, though volume alone doesn't tell us whether the buying is coming from institutions or retail traders.",
-  },
-  {
-    step: "Map price against moving averages and support/resistance zones.",
-    observations:
-      "Price sits at $64,200, positioned above both the 50-day EMA ($61,500) and 200-day EMA ($58,000). Immediate resistance is at $65,500, with support at $63,000.",
-    conclusion:
-      "The broader medium-term structure remains bullish as long as price holds above the 50-day EMA.",
-  },
-  {
-    step: "Analyze technical momentum indicators for convergence or divergence.",
-    observations:
-      "RSI(14) is at 62; MACD line is above the signal line with expanding positive histogram bars.",
-    conclusion:
-      "Momentum indicators agree on an upward bias. No overbought warnings or bearish divergences detected yet.",
-  },
-  {
-    step: "Identify macro catalysts and transmission channels.",
-    observations:
-      "Upcoming FOMC rate decision in 3 days; CPI print scheduled for next week.",
-    conclusion:
-      "Macro volatility is expected within a 72-hour window. Short-term derivative/leverage positions carry elevated risk ahead of the release.",
-  },
-  {
-    step: "Adapt synthesis and action levels to the target persona.",
-    observations:
-      "Persona context: Mid-tier (seeking clear direction and risk boundaries without excessive technical jargon).",
-    conclusion:
-      "Highlight the $65.5k resistance target clearly and define $63.0k as the key level that invalidates the short-term bullish outlook.",
-  },
+export const Q2_INSUFFICIENT_REASONS = [
+  "Data recitation only, no causal explanation",
+  "Conclusion too vague, no next step guidance",
+  "Templated boilerplate, low information gain",
 ];

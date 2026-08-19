@@ -1,351 +1,234 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 import {
-  MODULES,
-  DOMAIN_TASK_MODULE,
-  TASK_IDS,
-  PERSONAS,
-  SUGGESTED_HEADINGS,
-  CHECKLIST_EXAMPLE,
-  PersonaKey,
-  TaskKind,
-  Domain,
-  ModuleInfo,
+  REPORTS,
+  TASK_ORDER,
+  PORTRAITS,
+  Q2_UNSOUND_REASONS,
+  Q2_INSUFFICIENT_REASONS,
+  reportWordCount,
+  wordCount,
+  TaskKey,
+  PortraitKey,
+  ReportTask,
 } from "@/data/task";
 
 type Step = "gate" | "task" | "done";
+type Phase = "eval" | "rewrite";
+type Score13 = 1 | 2 | 3;
+type Publishability = "publishable" | "publishable_after_revision" | "not_publishable";
+type BestFit = PortraitKey | "none";
 
-// ---------- Evaluation task config ----------
+// ---------- Draft (browser-local autosave) ----------
 
-const SCORE_DIMENSIONS = [
-  {
-    key: "intent_recognition",
-    label: "Intent recognition",
-    help: "Is this what this persona, tapping this asset, actually wants to know? A relevance question, not an accuracy one — a flawless module can still miss what this persona specifically needs.",
-  },
-  {
-    key: "authority",
-    label: "Authority",
-    help: "Does the content earn this persona's trust — internally consistent, conclusions the shown figures actually support, no invented certainty?",
-  },
-  {
-    key: "utility",
-    label: "Utility",
-    help: "Could this persona act on this — clear levels or scenarios, diversity of evidence, language they specifically can follow?",
-  },
-] as const;
-
-const SCORE_ANCHORS: Record<number, string> = {
-  1: "Misleads or fails the reader outright",
-  2: "Significant problems",
-  3: "Mixed — usable with real gaps",
-  4: "Solid, minor issues only",
-  5: "Ship to users as is",
+type Draft = {
+  phase: Phase;
+  q1Ratings: Record<PortraitKey, Score13 | null>;
+  q1BestFit: BestFit | null;
+  q1Note: string;
+  q2Score: Score13 | null;
+  q2Reason: string | null;
+  q2Note: string;
+  q3Steps: { s1: boolean | null; s2a: boolean | null; s2b: boolean | null; s3: boolean | null; s4: boolean | null };
+  q4Score: Score13 | null;
+  q4Note: string;
+  q5: Publishability | null;
+  rewritePortrait: PortraitKey | null;
+  rewriteText: string;
+  dataFlag: boolean;
+  dataFlagNote: string;
+  attestationSignature: string;
 };
 
-const MIN_JUSTIFICATION_LEN = 40;
-
-type ScoreKey = (typeof SCORE_DIMENSIONS)[number]["key"];
-
-// ---------- Golden rewrite task config ----------
-
-type Section = { heading: string; bullets: string };
-
-function emptyPersonaAnswers(): Record<PersonaKey, Section[]> {
+function emptyDraft(): Draft {
   return {
-    rookie: [{ heading: "", bullets: "" }],
-    mid_tier: [{ heading: "", bullets: "" }],
-    experienced: [{ heading: "", bullets: "" }],
+    phase: "eval",
+    q1Ratings: { G1: null, G2: null, G3: null },
+    q1BestFit: null,
+    q1Note: "",
+    q2Score: null,
+    q2Reason: null,
+    q2Note: "",
+    q3Steps: { s1: null, s2a: null, s2b: null, s3: null, s4: null },
+    q4Score: null,
+    q4Note: "",
+    q5: null,
+    rewritePortrait: null,
+    rewriteText: "",
+    dataFlag: false,
+    dataFlagNote: "",
+    attestationSignature: "",
   };
 }
 
-type ChecklistItem = { step: string; observations: string; conclusion: string };
-
-function emptyChecklistItem(): ChecklistItem {
-  return { step: "", observations: "", conclusion: "" };
-}
-
-function emptyPersonaChecklists(): Record<PersonaKey, ChecklistItem[]> {
-  return {
-    rookie: [emptyChecklistItem()],
-    mid_tier: [emptyChecklistItem()],
-    experienced: [emptyChecklistItem()],
-  };
-}
-
-function personaAnswerIsComplete(sections: Section[]): boolean {
-  return (
-    sections.length > 0 &&
-    sections.every(
-      (s) => s.heading.trim().length > 0 && s.bullets.trim().length > 0
-    )
-  );
-}
-
-function checklistIsComplete(items: ChecklistItem[]): boolean {
-  return (
-    items.length > 0 &&
-    items.every(
-      (i) =>
-        i.step.trim().length > 0 &&
-        i.observations.trim().length > 0 &&
-        i.conclusion.trim().length > 0
-    )
-  );
-}
-
-// ---------- Autosave / resume (browser-local only) ----------
-// Keyed by task type + email, so the same browser can hold separate drafts
-// per task and per person. This is stored in localStorage only — nothing
-// server-side reads or writes it, so it never leaves this browser and
-// doesn't follow someone to another device. Submitting doesn't clear it,
-// so reopening the task after submitting still shows the same answer
-// prefilled, ready to edit into a new attempt.
-
-type EvalDraft = {
-  personaScores: Record<PersonaKey, Record<ScoreKey, number>>;
-  personaJustifications: Record<PersonaKey, Record<ScoreKey, string>>;
-  feedbackNewDimensions: string;
-};
-
-type GoldenRewriteDraft = {
-  personaAnswers: Record<PersonaKey, Section[]>;
-  personaChecklists: Record<PersonaKey, ChecklistItem[]>;
-};
-
-function isEvalDraft(d: unknown): d is EvalDraft {
+function isDraft(d: unknown): d is Draft {
   if (!d || typeof d !== "object") return false;
   const v = d as Record<string, unknown>;
-  const scores = v.personaScores as Record<string, unknown> | undefined;
-  const justifications = v.personaJustifications as Record<string, unknown> | undefined;
   return (
-    !!scores &&
-    !!justifications &&
-    !!scores.rookie &&
-    !!justifications.rookie &&
-    typeof v.feedbackNewDimensions === "string"
+    (v.phase === "eval" || v.phase === "rewrite") &&
+    !!v.q1Ratings &&
+    !!v.q3Steps &&
+    typeof v.rewriteText === "string"
   );
 }
 
-function isGoldenRewriteDraft(d: unknown): d is GoldenRewriteDraft {
-  if (!d || typeof d !== "object") return false;
-  const v = d as Record<string, unknown>;
-  const answers = v.personaAnswers as Record<string, unknown> | undefined;
-  const checklists = v.personaChecklists as Record<string, unknown> | undefined;
-  return (
-    !!answers &&
-    !!checklists &&
-    Array.isArray(answers.rookie) &&
-    Array.isArray(checklists.rookie)
-  );
+function draftKey(taskKey: TaskKey, email: string): string {
+  return `odyssey3-draft:${taskKey}:${email.trim().toLowerCase()}`;
 }
 
-function draftKey(domain: Domain, taskKind: TaskKind, email: string): string {
-  return `odyssey-draft:${domain}:${taskKind}:${email.trim().toLowerCase()}`;
+function doneKey(taskKey: TaskKey, email: string): string {
+  return `odyssey3-done:${taskKey}:${email.trim().toLowerCase()}`;
 }
 
-function loadDraft<T>(
-  domain: Domain,
-  taskKind: TaskKind,
-  email: string,
-  isValid: (d: unknown) => d is T
-): T | null {
+function loadDraft(taskKey: TaskKey, email: string): Draft | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(draftKey(domain, taskKind, email));
+    const raw = window.localStorage.getItem(draftKey(taskKey, email));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return isValid(parsed) ? parsed : null;
+    return isDraft(parsed) ? parsed : null;
   } catch {
-    // Malformed or stale draft (e.g. from an older version of this form) —
-    // ignore it and start fresh rather than risk applying a broken shape.
     return null;
   }
 }
 
-function saveDraft(domain: Domain, taskKind: TaskKind, email: string, data: unknown) {
+function saveDraft(taskKey: TaskKey, email: string, draft: Draft) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(draftKey(domain, taskKind, email), JSON.stringify(data));
+    window.localStorage.setItem(draftKey(taskKey, email), JSON.stringify(draft));
   } catch {
-    // Autosave is a convenience — a write failure (storage full, disabled,
-    // private browsing quirks) should never break the task itself.
+    // Autosave is a convenience; a storage failure must never break the task.
   }
+}
+
+function markDone(taskKey: TaskKey, email: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(doneKey(taskKey, email), "1");
+  } catch {}
+}
+
+function isDone(taskKey: TaskKey, email: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(doneKey(taskKey, email)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+// ---------- Q3 derivation (sequential decision flow) ----------
+
+function deriveQ3(steps: Draft["q3Steps"]): number | null {
+  if (steps.s1 === null) return null;
+  if (steps.s1 === false) return 1;
+  if (steps.s2a === null || steps.s2b === null) return null;
+  if (steps.s2a === false || steps.s2b === false) return 2;
+  if (steps.s3 === null) return null;
+  if (steps.s3 === false) return 3;
+  if (steps.s4 === null) return null;
+  return steps.s4 ? 5 : 4;
+}
+
+function q3Step2Tag(steps: Draft["q3Steps"]): string | null {
+  if (steps.s2a === false && steps.s2b === false) return "both";
+  if (steps.s2a === false) return "conclusion_survives_instrument_swap";
+  if (steps.s2b === false) return "no_call_on_dominant_side";
+  return null;
 }
 
 export default function Page() {
   const [step, setStep] = useState<Step>("gate");
-  const [domain, setDomain] = useState<Domain>("traditional_finance");
-  const [taskKind, setTaskKind] = useState<TaskKind>("evaluation");
+  const [taskKey, setTaskKey] = useState<TaskKey>("sol");
   const [error, setError] = useState<string | null>(null);
   const [startingTask, setStartingTask] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [continuing, setContinuing] = useState(false);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [accessCode, setAccessCode] = useState("");
-
-  // Server-side timing: set once the session row is created; every timestamp
-  // used for duration comes from Postgres's own clock, not the browser's.
-  const sessionIdRef = useRef<string | null>(null);
-
   const requiredAccessCode = process.env.NEXT_PUBLIC_TASK_ACCESS_CODE ?? "";
 
-  // Which module (and which task_id) this domain + task type maps to.
-  // Traditional finance splits across two modules (Gold for Evaluation,
-  // Energy for Golden rewrite); crypto uses BNB for both.
-  const currentModuleKey = DOMAIN_TASK_MODULE[domain][taskKind];
-  const currentModule: ModuleInfo = MODULES[currentModuleKey];
-  const currentTaskId = TASK_IDS[domain][taskKind];
+  const sessionIdRef = useRef<string | null>(null);
+  const evalEventRecordedRef = useRef(false);
 
-  // Evaluation state — all three personas are scored on every eval task
-  // (confirmed with the client: not one persona per task), so each of the
-  // three dimensions is scored and justified separately per persona.
-  function emptyPersonaScores(): Record<PersonaKey, Record<ScoreKey, number>> {
-    const dims = { intent_recognition: 3, authority: 3, utility: 3 } as Record<
-      ScoreKey,
-      number
-    >;
-    return { rookie: { ...dims }, mid_tier: { ...dims }, experienced: { ...dims } };
-  }
+  const [draft, setDraft] = useState<Draft>(emptyDraft());
 
-  function emptyPersonaJustifications(): Record<PersonaKey, Record<ScoreKey, string>> {
-    const dims = { intent_recognition: "", authority: "", utility: "" } as Record<
-      ScoreKey,
-      string
-    >;
-    return { rookie: { ...dims }, mid_tier: { ...dims }, experienced: { ...dims } };
-  }
+  const report: ReportTask = REPORTS[taskKey];
+  const originalWords = reportWordCount(report);
+  const lowerBound = Math.ceil(originalWords * 0.8);
+  const upperBound = originalWords < 150 ? 150 : Math.floor(originalWords * 1.2);
+  const rewriteWords = wordCount(draft.rewriteText);
 
-  const [personaScores, setPersonaScores] = useState<
-    Record<PersonaKey, Record<ScoreKey, number>>
-  >(emptyPersonaScores());
-  const [personaJustifications, setPersonaJustifications] = useState<
-    Record<PersonaKey, Record<ScoreKey, string>>
-  >(emptyPersonaJustifications());
-  const [feedbackNewDimensions, setFeedbackNewDimensions] = useState("");
-
-  function setScore(persona: PersonaKey, dimension: ScoreKey, value: number) {
-    setPersonaScores((prev) => ({
-      ...prev,
-      [persona]: { ...prev[persona], [dimension]: value },
-    }));
-  }
-
-  function setJustification(persona: PersonaKey, dimension: ScoreKey, value: string) {
-    setPersonaJustifications((prev) => ({
-      ...prev,
-      [persona]: { ...prev[persona], [dimension]: value },
-    }));
-  }
-
-  const justificationsOk = PERSONAS.every((p) =>
-    SCORE_DIMENSIONS.every(
-      (d) => personaJustifications[p.key][d.key].trim().length >= MIN_JUSTIFICATION_LEN
-    )
-  );
-  const canSubmitEval = justificationsOk;
-
-  // Golden rewrite state
-  const [personaAnswers, setPersonaAnswers] = useState<Record<PersonaKey, Section[]>>(
-    emptyPersonaAnswers()
-  );
-  const [personaChecklists, setPersonaChecklists] = useState<Record<PersonaKey, ChecklistItem[]>>(
-    emptyPersonaChecklists()
-  );
-
-  const canSubmitGoldenRewrite = PERSONAS.every(
-    (p) =>
-      checklistIsComplete(personaChecklists[p.key]) &&
-      personaAnswerIsComplete(personaAnswers[p.key])
-  );
-
-  // Autosave (browser-local): while actively on the task screen, keep the
-  // current answer mirrored into localStorage so reloading — or coming back
-  // after submitting — picks up right where it left off.
+  // ---------- Autosave ----------
   useEffect(() => {
-    if (step !== "task" || taskKind !== "evaluation") return;
-    saveDraft(domain, taskKind, email, {
-      personaScores,
-      personaJustifications,
-      feedbackNewDimensions,
-    } satisfies EvalDraft);
-  }, [
-    step,
-    domain,
-    taskKind,
-    email,
-    personaScores,
-    personaJustifications,
-    feedbackNewDimensions,
-  ]);
+    if (step !== "task") return;
+    saveDraft(taskKey, email, draft);
+  }, [step, taskKey, email, draft]);
 
-  useEffect(() => {
-    if (step !== "task" || taskKind !== "golden_rewrite") return;
-    saveDraft(domain, taskKind, email, {
-      personaAnswers,
-      personaChecklists,
-    } satisfies GoldenRewriteDraft);
-  }, [step, domain, taskKind, email, personaAnswers, personaChecklists]);
-
-  function addSection(persona: PersonaKey) {
-    setPersonaAnswers((prev) => ({
-      ...prev,
-      [persona]: [...prev[persona], { heading: "", bullets: "" }],
-    }));
+  function patchDraft(patch: Partial<Draft>) {
+    setDraft((prev) => ({ ...prev, ...patch }));
   }
 
-  function removeSection(persona: PersonaKey, index: number) {
-    setPersonaAnswers((prev) => {
-      const current = prev[persona];
-      if (current.length <= 1) return prev;
-      return { ...prev, [persona]: current.filter((_, i) => i !== index) };
-    });
-  }
+  // ---------- Validation ----------
 
-  function updateSection(
-    persona: PersonaKey,
-    index: number,
-    patch: Partial<Section>
-  ) {
-    setPersonaAnswers((prev) => {
-      const current = prev[persona];
-      const next = current.map((s, i) => (i === index ? { ...s, ...patch } : s));
-      return { ...prev, [persona]: next };
-    });
-  }
+  const q3Score = deriveQ3(draft.q3Steps);
+  const q1NoteRequired =
+    draft.q1BestFit === "none" ||
+    (draft.q1Ratings.G1 !== null &&
+      draft.q1Ratings.G2 !== null &&
+      draft.q1Ratings.G3 !== null &&
+      draft.q1Ratings.G1 < 3 &&
+      draft.q1Ratings.G2 < 3 &&
+      draft.q1Ratings.G3 < 3);
 
-  function addChecklistItem(persona: PersonaKey) {
-    setPersonaChecklists((prev) => ({
-      ...prev,
-      [persona]: [...prev[persona], emptyChecklistItem()],
-    }));
-  }
+  const q2ReasonRequired = draft.q2Score !== null && draft.q2Score <= 2;
+  const q2NoteRequired = draft.q2Score === 1;
+  const q4NoteRequired = draft.q4Score === 1;
 
-  function removeChecklistItem(persona: PersonaKey, index: number) {
-    setPersonaChecklists((prev) => {
-      const current = prev[persona];
-      if (current.length <= 1) return prev;
-      return { ...prev, [persona]: current.filter((_, i) => i !== index) };
-    });
-  }
+  const redLine =
+    (draft.q2Score === 1 &&
+      draft.q2Reason !== null &&
+      Q2_UNSOUND_REASONS.includes(draft.q2Reason)) ||
+    draft.q4Score === 1;
 
-  function updateChecklistItem(
-    persona: PersonaKey,
-    index: number,
-    patch: Partial<ChecklistItem>
-  ) {
-    setPersonaChecklists((prev) => {
-      const current = prev[persona];
-      const next = current.map((item, i) =>
-        i === index ? { ...item, ...patch } : item
-      );
-      return { ...prev, [persona]: next };
-    });
-  }
+  const q5Consistent =
+    draft.q5 === null
+      ? true
+      : redLine
+        ? draft.q5 === "not_publishable"
+        : draft.q5 !== "not_publishable";
+
+  const evalComplete =
+    draft.q1Ratings.G1 !== null &&
+    draft.q1Ratings.G2 !== null &&
+    draft.q1Ratings.G3 !== null &&
+    draft.q1BestFit !== null &&
+    (!q1NoteRequired || draft.q1Note.trim().length > 0) &&
+    draft.q2Score !== null &&
+    (!q2ReasonRequired || draft.q2Reason !== null) &&
+    (!q2NoteRequired || draft.q2Note.trim().length > 0) &&
+    q3Score !== null &&
+    draft.q4Score !== null &&
+    (!q4NoteRequired || draft.q4Note.trim().length > 0) &&
+    draft.q5 !== null &&
+    q5Consistent;
+
+  const rewriteInBounds = rewriteWords >= lowerBound && rewriteWords <= upperBound;
+  const attestationMatches =
+    draft.attestationSignature.trim().length > 0 &&
+    draft.attestationSignature.trim().toLowerCase() === name.trim().toLowerCase();
+  const rewriteComplete =
+    draft.rewritePortrait !== null &&
+    draft.rewriteText.trim().length > 0 &&
+    rewriteInBounds &&
+    (!draft.dataFlag || draft.dataFlagNote.trim().length > 0) &&
+    attestationMatches;
+
+  // ---------- Server actions ----------
 
   async function startSession() {
     setStartingTask(true);
@@ -359,130 +242,118 @@ export default function Page() {
     const { error: sessionError } = await supabase.from("task_sessions").insert({
       id,
       attempter_email: email.trim(),
-      task_kind: taskKind,
-      task_id: currentTaskId,
+      task_kind: "combined",
+      task_id: report.taskId,
     });
 
-    setStartingTask(false);
-
     if (sessionError) {
+      setStartingTask(false);
       setError(sessionError.message ?? "Couldn't start the task. Please try again.");
       return;
     }
 
     sessionIdRef.current = id;
+    evalEventRecordedRef.current = false;
+
+    // If a saved draft resumes straight into the rewrite phase, the whole of
+    // this new session is rewrite time, so record the eval-complete marker
+    // immediately (server timestamp).
+    const existing = loadDraft(taskKey, email);
+    if (existing) {
+      setDraft(existing);
+      if (existing.phase === "rewrite") {
+        await recordEvalComplete(id);
+      }
+    } else {
+      setDraft(emptyDraft());
+    }
+
+    setStartingTask(false);
     setStep("task");
   }
 
-  async function handleSubmitEval() {
+  async function recordEvalComplete(sessionId: string) {
+    if (evalEventRecordedRef.current) return;
+    const { error: eventError } = await supabase.from("session_events").insert({
+      session_id: sessionId,
+      event_type: "eval_complete",
+    });
+    if (!eventError) {
+      evalEventRecordedRef.current = true;
+    } else {
+      // Non-fatal: the submission still lands; only phase-split timing is lost.
+      console.warn("Could not record eval completion:", eventError.message);
+    }
+  }
+
+  async function handleContinueToRewrite() {
+    if (!evalComplete || !sessionIdRef.current) return;
+    setContinuing(true);
+    await recordEvalComplete(sessionIdRef.current);
+    setContinuing(false);
+    patchDraft({ phase: "rewrite" });
+  }
+
+  async function handleSubmit() {
+    if (!rewriteComplete) return;
     setSubmitting(true);
     setError(null);
-
-    function toScoresJson(persona: PersonaKey) {
-      const scores = personaScores[persona];
-      const justifications = personaJustifications[persona];
-      const out: Record<string, { score: number; justification: string }> = {};
-      for (const d of SCORE_DIMENSIONS) {
-        out[d.key] = {
-          score: scores[d.key],
-          justification: justifications[d.key].trim(),
-        };
-      }
-      return out;
-    }
 
     const payload = {
       attempter_name: name.trim(),
       attempter_email: email.trim(),
-      task_id: currentTaskId,
+      task_id: report.taskId,
       session_id: sessionIdRef.current,
 
-      rookie_scores: toScoresJson("rookie"),
-      mid_tier_scores: toScoresJson("mid_tier"),
-      experienced_scores: toScoresJson("experienced"),
+      q1_g1: draft.q1Ratings.G1,
+      q1_g2: draft.q1Ratings.G2,
+      q1_g3: draft.q1Ratings.G3,
+      q1_best_fit: draft.q1BestFit,
+      q1_note: draft.q1Note.trim() || null,
 
-      feedback_new_dimensions: feedbackNewDimensions.trim() || null,
+      q2_score: draft.q2Score,
+      q2_reason: draft.q2Reason,
+      q2_note: draft.q2Note.trim() || null,
+
+      q3_score: q3Score,
+      q3_step2_tag: q3Step2Tag(draft.q3Steps),
+
+      q4_score: draft.q4Score,
+      q4_note: draft.q4Note.trim() || null,
+
+      q5_publishability: draft.q5,
+
+      rewrite_portrait: draft.rewritePortrait,
+      rewrite_text: draft.rewriteText.trim(),
+      rewrite_word_count: rewriteWords,
+      original_word_count: originalWords,
+      data_integrity_flag: draft.dataFlag,
+      data_integrity_note: draft.dataFlag ? draft.dataFlagNote.trim() : null,
+
+      no_ai_attestation_signature: draft.attestationSignature.trim(),
     };
 
     const { error: insertError } = await supabase
-      .from("eval_submissions")
+      .from("report_submissions")
       .insert(payload);
 
+    setSubmitting(false);
     if (insertError) {
-      setSubmitting(false);
       setError(insertError.message);
       return;
     }
-
-    setSubmitting(false);
+    markDone(taskKey, email);
     setStep("done");
   }
 
-  async function handleSubmitGoldenRewrite() {
-    setSubmitting(true);
-    setError(null);
+  // ---------- Copy / paste guards ----------
 
-    function toJsonAnswer(sections: Section[]) {
-      return sections.map((s) => ({
-        heading: s.heading.trim(),
-        bullets: s.bullets
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean),
-      }));
-    }
-
-    function toJsonChecklist(items: ChecklistItem[]) {
-      return items.map((i) => ({
-        step: i.step.trim(),
-        observations: i.observations.trim(),
-        conclusion: i.conclusion.trim(),
-      }));
-    }
-
-    const payload = {
-      attempter_name: name.trim(),
-      attempter_email: email.trim(),
-      task_id: currentTaskId,
-      session_id: sessionIdRef.current,
-
-      rookie_answer: toJsonAnswer(personaAnswers.rookie),
-      mid_tier_answer: toJsonAnswer(personaAnswers.mid_tier),
-      experienced_answer: toJsonAnswer(personaAnswers.experienced),
-
-      rookie_checklist: toJsonChecklist(personaChecklists.rookie),
-      mid_tier_checklist: toJsonChecklist(personaChecklists.mid_tier),
-      experienced_checklist: toJsonChecklist(personaChecklists.experienced),
-    };
-
-    const { error: insertError } = await supabase
-      .from("golden_rewrite_submissions")
-      .insert(payload);
-
-    if (insertError) {
-      setSubmitting(false);
-      setError(insertError.message);
-      return;
-    }
-
-    setSubmitting(false);
-    setStep("done");
-  }
-
-  // Blocks copy/cut/right-click/drag everywhere on the page except inside
-  // actual form fields — someone can still copy what they themselves typed
-  // out of an input or textarea, but can't copy instructions, definitions,
-  // or the stimulus by right-clicking or selecting elsewhere on the page.
   function blockCopyExceptFormFields(e: React.SyntheticEvent) {
     const tag = (e.target as HTMLElement).tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     e.preventDefault();
   }
 
-  // Blocks paste everywhere, with no exemption. Paste only ever fires
-  // inside an editable field to begin with (there's nothing to paste into
-  // elsewhere on the page), so this forces every answer to be typed rather
-  // than pasted in from somewhere else.
   function blockPaste(e: React.SyntheticEvent) {
     e.preventDefault();
   }
@@ -496,7 +367,26 @@ export default function Page() {
       onDragStart={blockCopyExceptFormFields}
       onPaste={blockPaste}
     >
-      <Header module={currentModule} taskKind={taskKind} taskId={currentTaskId} />
+      <header className="border-b border-line pb-4">
+        <p className="font-mono text-xs uppercase tracking-wider text-brass">
+          Report task · {report.taskId}
+        </p>
+        <h1 className="mt-1 text-2xl font-semibold text-ink">{report.title}</h1>
+        <p className="mt-1 text-sm text-ink/60">
+          {report.ticker} · {report.category} · generated {report.generatedAt}
+        </p>
+      </header>
+
+      <div className="mt-4 rounded-lg border border-warn/40 bg-warn/5 px-4 py-3">
+        <p className="text-sm font-semibold text-warn">
+          No LLM or AI assistance of any kind is permitted on this task.
+        </p>
+        <p className="mt-0.5 text-sm text-ink/70">
+          All scoring and writing must be your own, unassisted work. Using an
+          LLM or any AI tool at any stage is grounds for removal from the
+          project.
+        </p>
+      </div>
 
       {step === "gate" && (
         <GateScreen
@@ -504,16 +394,15 @@ export default function Page() {
           setName={setName}
           email={email}
           setEmail={setEmail}
-          domain={domain}
-          setDomain={setDomain}
-          taskKind={taskKind}
-          setTaskKind={setTaskKind}
+          taskKey={taskKey}
+          setTaskKey={setTaskKey}
           accessCode={accessCode}
           setAccessCode={setAccessCode}
           requiredAccessCode={requiredAccessCode}
           error={error}
           starting={startingTask}
           onStart={() => {
+            setError(null);
             if (requiredAccessCode && accessCode.trim() !== requiredAccessCode) {
               setError("Access code doesn't match. Check with the project team.");
               return;
@@ -526,117 +415,78 @@ export default function Page() {
               setError("Enter a valid email address before starting.");
               return;
             }
-
-            if (taskKind === "evaluation") {
-              const draft = loadDraft<EvalDraft>(domain, taskKind, email, isEvalDraft);
-              if (draft) {
-                setPersonaScores(draft.personaScores);
-                setPersonaJustifications(draft.personaJustifications);
-                setFeedbackNewDimensions(draft.feedbackNewDimensions);
-              }
-            } else {
-              const draft = loadDraft<GoldenRewriteDraft>(
-                domain,
-                taskKind,
-                email,
-                isGoldenRewriteDraft
-              );
-              if (draft) {
-                setPersonaAnswers(draft.personaAnswers);
-                setPersonaChecklists(draft.personaChecklists);
-              }
-            }
-
             startSession();
           }}
         />
       )}
 
-      {step === "task" && taskKind === "evaluation" && (
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[420px_1fr] lg:items-stretch">
+      {step === "task" && (
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[460px_1fr] lg:items-stretch">
           <div className="lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
-            <StimulusPanel module={currentModule} />
+            <ReportPanel report={report} />
           </div>
 
           <div className="lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
-            <EvalTaskForm
-              personaScores={personaScores}
-              setScore={setScore}
-              personaJustifications={personaJustifications}
-              setJustification={setJustification}
-              feedbackNewDimensions={feedbackNewDimensions}
-              setFeedbackNewDimensions={setFeedbackNewDimensions}
-              canSubmit={canSubmitEval}
-              submitting={submitting}
-              error={error}
-              onSubmit={handleSubmitEval}
-            />
-          </div>
-        </div>
-      )}
-
-      {step === "task" && taskKind === "golden_rewrite" && (
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[420px_1fr] lg:items-stretch">
-          <div className="lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
-            <StimulusPanel module={currentModule} />
-          </div>
-
-          <div className="lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
-            <GoldenRewriteForm
-              personaAnswers={personaAnswers}
-              addSection={addSection}
-              removeSection={removeSection}
-              updateSection={updateSection}
-              personaChecklists={personaChecklists}
-              addChecklistItem={addChecklistItem}
-              removeChecklistItem={removeChecklistItem}
-              updateChecklistItem={updateChecklistItem}
-              canSubmit={canSubmitGoldenRewrite}
-              submitting={submitting}
-              error={error}
-              onSubmit={handleSubmitGoldenRewrite}
-            />
+            {draft.phase === "eval" ? (
+              <EvalForm
+                draft={draft}
+                patchDraft={patchDraft}
+                q3Score={q3Score}
+                q1NoteRequired={q1NoteRequired}
+                q2ReasonRequired={q2ReasonRequired}
+                q2NoteRequired={q2NoteRequired}
+                q4NoteRequired={q4NoteRequired}
+                redLine={redLine}
+                q5Consistent={q5Consistent}
+                evalComplete={evalComplete}
+                continuing={continuing}
+                onContinue={handleContinueToRewrite}
+              />
+            ) : (
+              <RewriteForm
+                draft={draft}
+                patchDraft={patchDraft}
+                name={name}
+                attestationMatches={attestationMatches}
+                originalWords={originalWords}
+                lowerBound={lowerBound}
+                upperBound={upperBound}
+                rewriteWords={rewriteWords}
+                rewriteInBounds={rewriteInBounds}
+                rewriteComplete={rewriteComplete}
+                submitting={submitting}
+                error={error}
+                onBackToEval={() => patchDraft({ phase: "eval" })}
+                onSubmit={handleSubmit}
+              />
+            )}
           </div>
         </div>
       )}
 
-      {step === "done" && <DoneScreen />}
+      {step === "done" && (
+        <div className="mx-auto mt-10 max-w-md rounded-lg border border-line bg-white p-6 text-center">
+          <h2 className="text-lg font-semibold">Submitted</h2>
+          <p className="mt-2 text-sm text-ink/70">
+            Your work on this report has been recorded. All three reports must
+            be completed to join the project. To do another, reload this page
+            and pick the next report.
+          </p>
+        </div>
+      )}
     </main>
   );
 }
 
-function Header({
-  module,
-  taskKind,
-  taskId,
-}: {
-  module: ModuleInfo;
-  taskKind: TaskKind;
-  taskId: string;
-}) {
-  const label = taskKind === "evaluation" ? "Evaluation" : "Golden rewrite";
-  return (
-    <header className="border-b border-line pb-4">
-      <p className="font-mono text-xs uppercase tracking-wider text-brass">
-        {label} task · {taskId}
-      </p>
-      <h1 className="mt-1 text-2xl font-semibold text-ink">{module.module}</h1>
-      <p className="mt-1 text-sm text-ink/60">
-        {module.placement} · published {module.publishedAt}
-      </p>
-    </header>
-  );
-}
+// ---------- Gate ----------
 
 function GateScreen({
   name,
   setName,
   email,
   setEmail,
-  domain,
-  setDomain,
-  taskKind,
-  setTaskKind,
+  taskKey,
+  setTaskKey,
   accessCode,
   setAccessCode,
   requiredAccessCode,
@@ -648,10 +498,8 @@ function GateScreen({
   setName: (v: string) => void;
   email: string;
   setEmail: (v: string) => void;
-  domain: Domain;
-  setDomain: (d: Domain) => void;
-  taskKind: TaskKind;
-  setTaskKind: (t: TaskKind) => void;
+  taskKey: TaskKey;
+  setTaskKey: (t: TaskKey) => void;
   accessCode: string;
   setAccessCode: (v: string) => void;
   requiredAccessCode: string;
@@ -659,34 +507,19 @@ function GateScreen({
   starting: boolean;
   onStart: () => void;
 }) {
-  const moduleNote =
-    domain === "traditional_finance"
-      ? "Traditional finance: Gold for Evaluation, Energy for Golden rewrite."
-      : "Crypto: BNB for both tasks.";
-
   return (
     <div className="mx-auto mt-10 max-w-md rounded-lg border border-line bg-white p-6">
       <h2 className="text-lg font-semibold">Before you start</h2>
       <p className="mt-2 text-sm text-ink/70">
-        Pick your domain, then whichever task you're doing next. Both tasks
-        must be completed to join the project — you can do them in either
-        order, one at a time.
+        There are three reports: SOL, BTC, and US100. Each is one task that
+        combines an evaluation and a full rewrite.{" "}
+        <span className="font-medium text-ink">
+          All three must be completed to join the project.
+        </span>{" "}
+        You choose the order; do them one at a time.
       </p>
 
-      <label className="mt-5 block text-sm font-medium">
-        Are you crypto or traditional finance?
-      </label>
-      <select
-        className="focus-ring mt-1 w-full rounded border border-line bg-white px-3 py-2 text-sm"
-        value={domain}
-        onChange={(e) => setDomain(e.target.value as Domain)}
-      >
-        <option value="traditional_finance">Traditional finance</option>
-        <option value="crypto">Crypto</option>
-      </select>
-      <p className="mt-1 text-xs text-ink/50">{moduleNote}</p>
-
-      <label className="mt-4 block text-sm font-medium">Your name</label>
+      <label className="mt-5 block text-sm font-medium">Your name</label>
       <input
         className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm"
         value={name}
@@ -704,18 +537,22 @@ function GateScreen({
       />
 
       <label className="mt-4 block text-sm font-medium">
-        Which task would you like to do?
+        Which report would you like to work on?
       </label>
       <select
         className="focus-ring mt-1 w-full rounded border border-line bg-white px-3 py-2 text-sm"
-        value={taskKind}
-        onChange={(e) => setTaskKind(e.target.value as TaskKind)}
+        value={taskKey}
+        onChange={(e) => setTaskKey(e.target.value as TaskKey)}
       >
-        <option value="evaluation">Evaluation</option>
-        <option value="golden_rewrite">Golden rewrite</option>
+        {TASK_ORDER.map((key) => (
+          <option key={key} value={key}>
+            {REPORTS[key].label}
+            {email && isDone(key, email) ? " ✓ submitted" : ""}
+          </option>
+        ))}
       </select>
       <p className="mt-1 text-xs text-ink/50">
-        Both tasks must be completed to join the project.
+        All three reports must be completed to join the project.
       </p>
 
       {requiredAccessCode && (
@@ -743,448 +580,672 @@ function GateScreen({
   );
 }
 
-function StimulusPanel({ module }: { module: ModuleInfo }) {
+// ---------- Report panel ----------
+
+function ReportPanel({ report }: { report: ReportTask }) {
   return (
     <div className="rounded-lg border border-line bg-white">
       <div className="border-b border-line px-4 py-3">
         <p className="font-mono text-[11px] uppercase tracking-wider text-ink/50">
-          Stimulus
+          Report under evaluation
         </p>
       </div>
-
-      <div className="flex justify-center bg-paper p-4">
-        <Image
-          src={module.screenshotSrc}
-          alt={module.screenshotAlt}
-          width={300}
-          height={520}
-          draggable={false}
-          className="h-auto w-full max-w-[300px] rounded-xl border border-line"
-        />
-      </div>
-
-      <div className="border-t border-line">
-        <table className="w-full text-left text-sm">
-          <tbody>
-            {module.fields.map((f) => (
-              <tr key={f.field} className="border-b border-line align-top">
-                <td className="w-32 shrink-0 px-3 py-3 font-mono text-[11px] font-semibold uppercase tracking-wide text-brass">
-                  {f.field}
-                </td>
-                <td className="whitespace-pre-line px-3 py-3 text-[13px] leading-relaxed text-ink/90">
-                  {f.text}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-// ---------- Evaluation form ----------
-
-function EvalTaskForm({
-  personaScores,
-  setScore,
-  personaJustifications,
-  setJustification,
-  feedbackNewDimensions,
-  setFeedbackNewDimensions,
-  canSubmit,
-  submitting,
-  error,
-  onSubmit,
-}: {
-  personaScores: Record<PersonaKey, Record<ScoreKey, number>>;
-  setScore: (persona: PersonaKey, dimension: ScoreKey, value: number) => void;
-  personaJustifications: Record<PersonaKey, Record<ScoreKey, string>>;
-  setJustification: (persona: PersonaKey, dimension: ScoreKey, value: string) => void;
-  feedbackNewDimensions: string;
-  setFeedbackNewDimensions: (v: string) => void;
-  canSubmit: boolean;
-  submitting: boolean;
-  error: string | null;
-  onSubmit: () => void;
-}) {
-  return (
-    <div className="space-y-6">
-      <div className="rounded-lg border border-line bg-white p-5">
-        <h2 className="text-base font-semibold">Score all three personas</h2>
-        <p className="mt-1 text-sm text-ink/60">
-          Score this module once per persona — intent recognition especially
-          can land very differently depending on who's reading it, and
-          utility often does too. 5 = ship to users as is. 1 = misleads or
-          fails the reader outright. Justify each score with something
-          specific — name the section and the figure or claim you're
-          pointing to.
-        </p>
-      </div>
-
-      {PERSONAS.map((persona) => (
-        <div key={persona.key} className="rounded-lg border border-line bg-white p-5">
-          <h3 className="text-base font-semibold">{persona.label}</h3>
-          <p className="mt-1 rounded border border-line bg-paper px-3 py-2 text-sm text-ink/70">
-            {persona.definition}
-          </p>
-
-          <div className="mt-5 space-y-6">
-            {SCORE_DIMENSIONS.map((d) => {
-              const score = personaScores[persona.key][d.key];
-              const justification = personaJustifications[persona.key][d.key];
-              return (
-                <div key={d.key} className="border-b border-line pb-5 last:border-0">
-                  <p className="text-sm font-medium">{d.label}</p>
-                  <p className="mt-0.5 text-sm text-ink/60">{d.help}</p>
-                  <div className="mt-3 flex gap-2">
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <button
-                        key={n}
-                        onClick={() => setScore(persona.key, d.key, n)}
-                        className={`focus-ring flex h-9 w-9 items-center justify-center rounded border text-sm font-semibold ${
-                          score === n
-                            ? "border-brass bg-brass/10 text-brass"
-                            : "border-line text-ink/50 hover:border-ink/30"
-                        }`}
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="mt-1 text-xs text-ink/40">{SCORE_ANCHORS[score]}</p>
-
-                  <label className="mt-3 block text-sm font-medium">
-                    Justify this score
-                  </label>
-                  <textarea
-                    className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
-                    rows={3}
-                    value={justification}
-                    onChange={(e) =>
-                      setJustification(persona.key, d.key, e.target.value)
-                    }
-                    placeholder="Point to the specific line or figure and say why it drove this score."
-                  />
-                  <span
-                    className={`mt-1 block text-right font-mono text-xs ${
-                      justification.trim().length >= MIN_JUSTIFICATION_LEN
-                        ? "text-ok"
-                        : "text-ink/40"
-                    }`}
-                  >
-                    {justification.trim().length}/{MIN_JUSTIFICATION_LEN}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-
-      <div className="rounded-lg border border-line bg-white p-5">
-        <h2 className="text-base font-semibold">Feedback</h2>
-
-        <label className="mt-1 block text-sm font-medium">
-          Should we score any additional dimensions? (optional)
-        </label>
-        <p className="mt-0.5 text-sm text-ink/60">
-          If you think something isn't captured by intent recognition,
-          authority, or utility, name the dimension and define it.
-        </p>
-        <textarea
-          className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
-          rows={4}
-          value={feedbackNewDimensions}
-          onChange={(e) => setFeedbackNewDimensions(e.target.value)}
-          placeholder='e.g. "Tone calibration: whether the confidence of the language matches the confidence the data supports."'
-        />
-      </div>
-
-      {error && <p className="text-sm text-warn">Couldn't submit: {error}</p>}
-
-      <div className="flex justify-end">
-        <button
-          disabled={!canSubmit || submitting}
-          onClick={onSubmit}
-          className="focus-ring rounded bg-ink px-4 py-2 text-sm font-medium text-paper hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          {submitting ? "Submitting…" : "Submit task"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ---------- Golden rewrite form ----------
-
-function GoldenRewriteForm({
-  personaAnswers,
-  addSection,
-  removeSection,
-  updateSection,
-  personaChecklists,
-  addChecklistItem,
-  removeChecklistItem,
-  updateChecklistItem,
-  canSubmit,
-  submitting,
-  error,
-  onSubmit,
-}: {
-  personaAnswers: Record<PersonaKey, Section[]>;
-  addSection: (persona: PersonaKey) => void;
-  removeSection: (persona: PersonaKey, index: number) => void;
-  updateSection: (persona: PersonaKey, index: number, patch: Partial<Section>) => void;
-  personaChecklists: Record<PersonaKey, ChecklistItem[]>;
-  addChecklistItem: (persona: PersonaKey) => void;
-  removeChecklistItem: (persona: PersonaKey, index: number) => void;
-  updateChecklistItem: (
-    persona: PersonaKey,
-    index: number,
-    patch: Partial<ChecklistItem>
-  ) => void;
-  canSubmit: boolean;
-  submitting: boolean;
-  error: string | null;
-  onSubmit: () => void;
-}) {
-  return (
-    <div className="space-y-6">
-      <div className="rounded-lg border border-line bg-white p-5">
-        <h2 className="text-base font-semibold">Write the improved answer, per persona</h2>
-        <p className="mt-1 text-sm text-ink/60">
-          For each persona: first write the reasoning checklist, then the
-          rewrite itself as a heading followed by bullet points — Core
-          Conclusion, then its bullets; Macro Analysis, then its bullets; and
-          so on. Use the suggested headings or write your own if they fit the
-          asset better. There's no fixed number of headings — use your own
-          judgment for how many this asset and persona actually need.
-        </p>
-        <p className="mt-3 text-sm text-ink/60">
-          A few starting points, not a rigid checklist — use judgment on how
-          each applies to this asset and persona:
-        </p>
-        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-ink/60">
-          <li>Verify every number against reliable external market data before using it.</li>
-          <li>State risk plainly, in terms this persona can absorb.</li>
-          <li>Make each persona's version clearly different in content and framing.</li>
-          <li>Keep it about the length of the original module, or shorter.</li>
-        </ul>
-      </div>
-
-      {PERSONAS.map((persona) => {
-        const sections = personaAnswers[persona.key];
-        const checklist = personaChecklists[persona.key];
-        return (
-          <div key={persona.key} className="rounded-lg border border-line bg-white p-5">
-            <h3 className="text-base font-semibold">{persona.label}</h3>
-            <p className="mt-1 rounded border border-line bg-paper px-3 py-2 text-sm text-ink/70">
-              {persona.definition}
+      <div className="px-4 py-3">
+        {report.sections.map((s) => (
+          <div key={s.heading} className="mb-5 last:mb-0">
+            <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-brass">
+              {s.heading}
             </p>
+            <p className="mt-1 whitespace-pre-line text-[13px] leading-relaxed text-ink/90">
+              {s.body}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-            {/* Reasoning checklist */}
-            <div className="mt-5 rounded border border-line p-4">
-              <p className="text-sm font-semibold">Reasoning checklist</p>
-              <p className="mt-1 text-sm text-ink/60">
-                Before writing the answer below, walk through the analytical
-                steps a competent analyst would actually take for this asset
-                and this persona, in order. For each step, name the step,
-                your Observations, and your Conclusion — this is graded on
-                its own, since it shows how you got to the answer, not just
-                the answer itself. A rookie checklist might include a step
-                for explaining what an indicator means before using it; an
-                experienced checklist usually wouldn't need that step.
+// ---------- Shared bits ----------
+
+function ScoreButtons({
+  value,
+  onChange,
+  options,
+}: {
+  value: number | null;
+  onChange: (n: number) => void;
+  options: number[];
+}) {
+  return (
+    <div className="mt-2 flex gap-2">
+      {options.map((n) => (
+        <button
+          key={n}
+          onClick={() => onChange(n)}
+          className={`focus-ring flex h-9 w-9 items-center justify-center rounded border text-sm font-semibold ${
+            value === n
+              ? "border-brass bg-brass/10 text-brass"
+              : "border-line text-ink/50 hover:border-ink/30"
+          }`}
+        >
+          {n}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function YesNo({
+  value,
+  onChange,
+}: {
+  value: boolean | null;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="mt-2 flex gap-2">
+      <button
+        onClick={() => onChange(true)}
+        className={`focus-ring rounded border px-3 py-1 text-xs font-medium ${
+          value === true ? "border-ok bg-ok/10 text-ok" : "border-line text-ink/40"
+        }`}
+      >
+        Yes
+      </button>
+      <button
+        onClick={() => onChange(false)}
+        className={`focus-ring rounded border px-3 py-1 text-xs font-medium ${
+          value === false ? "border-warn bg-warn/10 text-warn" : "border-line text-ink/40"
+        }`}
+      >
+        No
+      </button>
+    </div>
+  );
+}
+
+function PortraitReference() {
+  return (
+    <details className="mt-3 rounded border border-line bg-paper px-3 py-2">
+      <summary className="cursor-pointer text-xs font-medium text-brass">
+        Portrait reference (G1 / G2 / G3)
+      </summary>
+      <div className="mt-2 space-y-4">
+        {PORTRAITS.map((p) => (
+          <div key={p.key} className="border-b border-line pb-3 text-xs leading-relaxed text-ink/70 last:border-0">
+            <p className="font-semibold text-ink">
+              {p.label} · {p.band}
+            </p>
+            <p className="mt-1 italic">"{p.script}"</p>
+            <p className="mt-1">
+              <span className="font-medium">Wants:</span> {p.wants}
+            </p>
+            <p className="mt-1">
+              <span className="font-medium">What loses them:</span> {p.loses}
+            </p>
+            <p className="mt-1">
+              <span className="font-medium">Must be explained:</span> {p.mustExplain}
+            </p>
+            <p className="mt-1">
+              <span className="font-medium">Actionability ceiling:</span> {p.actionCeiling}
+            </p>
+            <p className="mt-1">
+              <span className="font-medium">Risk framing:</span> {p.riskFraming}
+            </p>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+// ---------- Part A: Evaluation ----------
+
+function EvalForm({
+  draft,
+  patchDraft,
+  q3Score,
+  q1NoteRequired,
+  q2ReasonRequired,
+  q2NoteRequired,
+  q4NoteRequired,
+  redLine,
+  q5Consistent,
+  evalComplete,
+  continuing,
+  onContinue,
+}: {
+  draft: Draft;
+  patchDraft: (p: Partial<Draft>) => void;
+  q3Score: number | null;
+  q1NoteRequired: boolean;
+  q2ReasonRequired: boolean;
+  q2NoteRequired: boolean;
+  q4NoteRequired: boolean;
+  redLine: boolean;
+  q5Consistent: boolean;
+  evalComplete: boolean;
+  continuing: boolean;
+  onContinue: () => void;
+}) {
+  const steps = draft.q3Steps;
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-lg border border-line bg-white p-5">
+        <h2 className="text-base font-semibold">Part A · Evaluation</h2>
+        <p className="mt-1 text-sm text-ink/60">
+          Five fixed questions. Take every figure at face value; you are
+          evaluating the reasoning and the reader fit, not verifying data
+          externally. Format is not scored.
+        </p>
+        <PortraitReference />
+      </div>
+
+      {/* Q1 */}
+      <div className="rounded-lg border border-line bg-white p-5">
+        <h3 className="text-sm font-semibold">Q1 · Portrait fit (primary question)</h3>
+        <p className="mt-1 text-sm text-ink/60">
+          Who does this report actually serve? Rate it against each portrait
+          independently. 3 = serves them well. 2 = usable but miscalibrated in
+          one dimension. 1 = wrong reader.
+        </p>
+
+        {PORTRAITS.map((p) => (
+          <div key={p.key} className="mt-4">
+            <p className="text-sm font-medium">{p.label}</p>
+            <ScoreButtons
+              value={draft.q1Ratings[p.key]}
+              onChange={(n) =>
+                patchDraft({
+                  q1Ratings: { ...draft.q1Ratings, [p.key]: n as Score13 },
+                })
+              }
+              options={[1, 2, 3]}
+            />
+          </div>
+        ))}
+
+        <p className="mt-5 text-sm font-medium">Best fit (single select)</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {(["G1", "G2", "G3", "none"] as BestFit[]).map((opt) => (
+            <button
+              key={opt}
+              onClick={() => patchDraft({ q1BestFit: opt })}
+              className={`focus-ring rounded border px-3 py-1.5 text-xs font-medium ${
+                draft.q1BestFit === opt
+                  ? "border-brass bg-brass/10 text-brass"
+                  : "border-line text-ink/50 hover:border-ink/30"
+              }`}
+            >
+              {opt === "none" ? "None of them" : opt}
+            </button>
+          ))}
+        </div>
+
+        {q1NoteRequired && (
+          <>
+            <label className="mt-4 block text-sm font-medium">
+              Note (required): name who the report fails and what specifically
+              causes it — a term, a sentence, an instruction
+            </label>
+            <textarea
+              className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
+              rows={3}
+              value={draft.q1Note}
+              onChange={(e) => patchDraft({ q1Note: e.target.value })}
+            />
+          </>
+        )}
+      </div>
+
+      {/* Q2 */}
+      <div className="rounded-lg border border-line bg-white p-5">
+        <h3 className="text-sm font-semibold">
+          Q2 · Analytical soundness and information value
+        </h3>
+        <p className="mt-1 text-sm text-ink/60">
+          Portrait independent. Judged on the numbers as given — do not verify
+          figures externally. 3 = causal chain holds. 2 = broadly holds but
+          skips steps, or thin data recitation. 1 = reasoning does not hold, or
+          hollow and templated. A score of 1 with an unsound-reasoning reason
+          is a red line (FAIL).
+        </p>
+        <ScoreButtons
+          value={draft.q2Score}
+          onChange={(n) => patchDraft({ q2Score: n as Score13, q2Reason: null })}
+          options={[1, 2, 3]}
+        />
+
+        {q2ReasonRequired && (
+          <>
+            <p className="mt-4 text-sm font-medium">Primary reason (single select)</p>
+            <div className="mt-2 space-y-1.5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-warn">
+                Unsound reasoning (FAIL if scored 1)
               </p>
-
-              <details className="mt-2">
-                <summary className="cursor-pointer text-xs font-medium text-brass">
-                  Example checklist (different asset, for illustration only)
-                </summary>
-                <ol className="mt-2 space-y-3 pl-5 text-xs text-ink/60">
-                  {CHECKLIST_EXAMPLE.map((item, i) => (
-                    <li key={i} className="list-decimal">
-                      <span className="font-medium text-ink/70">{item.step}</span>
-                      <p className="mt-0.5">
-                        <span className="font-semibold text-ink/50">Observations: </span>
-                        {item.observations}
-                      </p>
-                      <p className="mt-0.5">
-                        <span className="font-semibold text-ink/50">Conclusion: </span>
-                        {item.conclusion}
-                      </p>
-                    </li>
-                  ))}
-                </ol>
-              </details>
-
-              <div className="mt-3 space-y-4">
-                {checklist.map((item, i) => (
-                  <div key={i} className="rounded border border-line p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold uppercase tracking-wide text-ink/50">
-                        Step {i + 1}
-                      </span>
-                      {checklist.length > 1 && (
-                        <button
-                          onClick={() => removeChecklistItem(persona.key, i)}
-                          className="focus-ring text-xs text-ink/40 hover:text-warn"
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                    <input
-                      className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm font-medium"
-                      value={item.step}
-                      onChange={(e) =>
-                        updateChecklistItem(persona.key, i, { step: e.target.value })
-                      }
-                      placeholder="e.g. Evaluate price and volume movements since the last session"
-                    />
-
-                    <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-ink/50">
-                      Observations
-                    </label>
-                    <textarea
-                      className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
-                      rows={2}
-                      value={item.observations}
-                      onChange={(e) =>
-                        updateChecklistItem(persona.key, i, {
-                          observations: e.target.value,
-                        })
-                      }
-                      placeholder="e.g. Price moved +3.2% while volume increased by 15% relative to the 20-day average."
-                    />
-
-                    <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-ink/50">
-                      Conclusion
-                    </label>
-                    <textarea
-                      className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
-                      rows={2}
-                      value={item.conclusion}
-                      onChange={(e) =>
-                        updateChecklistItem(persona.key, i, {
-                          conclusion: e.target.value,
-                        })
-                      }
-                      placeholder="e.g. Strong buying demand confirmed by above-average volume — a firmer signal than a low-volume drift."
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <button
-                onClick={() => addChecklistItem(persona.key)}
-                className="focus-ring mt-3 rounded border border-line px-3 py-1.5 text-xs font-medium text-ink/70 hover:border-brass hover:text-brass"
-              >
-                + Add reasoning step
-              </button>
-            </div>
-
-            {/* Rewritten answer */}
-            <div className="mt-6 border-t border-line pt-5">
-              <p className="text-sm font-semibold">Rewritten answer</p>
-              <p className="mt-1 text-sm text-ink/60">
-                Now write the improved answer itself, as a heading followed
-                by bullet points for each section.
+              {Q2_UNSOUND_REASONS.map((r) => (
+                <ReasonOption
+                  key={r}
+                  label={r}
+                  selected={draft.q2Reason === r}
+                  onSelect={() => patchDraft({ q2Reason: r })}
+                />
+              ))}
+              <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-ink/50">
+                Insufficient information (low score only)
               </p>
-            </div>
-            <div className="mt-3 space-y-4">
-              {sections.map((section, i) => (
-                <div key={i} className="rounded border border-line p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <label className="block flex-1 text-xs font-semibold uppercase tracking-wide text-ink/50">
-                      Heading
-                    </label>
-                    {sections.length > 1 && (
-                      <button
-                        onClick={() => removeSection(persona.key, i)}
-                        className="focus-ring text-xs text-ink/40 hover:text-warn"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                  <input
-                    className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm font-medium"
-                    value={section.heading}
-                    onChange={(e) =>
-                      updateSection(persona.key, i, { heading: e.target.value })
-                    }
-                    placeholder={`e.g. ${SUGGESTED_HEADINGS[i] ?? "Section heading"}`}
-                  />
-
-                  <label className="mt-3 block text-xs font-semibold uppercase tracking-wide text-ink/50">
-                    Bullet points — one per line
-                  </label>
-                  <textarea
-                    className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
-                    rows={3}
-                    value={section.bullets}
-                    onChange={(e) =>
-                      updateSection(persona.key, i, { bullets: e.target.value })
-                    }
-                    placeholder={"e.g.\nBNB is up about 6% over the past month.\nThe last few days have been quieter."}
-                  />
-
-                  {(section.heading.trim() || section.bullets.trim()) && (
-                    <div className="mt-3 rounded bg-paper p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-brass">
-                        Preview
-                      </p>
-                      <p className="mt-1 text-sm font-semibold">
-                        {section.heading.trim() || "(heading)"}
-                      </p>
-                      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-ink/80">
-                        {section.bullets
-                          .split("\n")
-                          .map((line) => line.trim())
-                          .filter(Boolean)
-                          .map((line, li) => (
-                            <li key={li}>{line}</li>
-                          ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
+              {Q2_INSUFFICIENT_REASONS.map((r) => (
+                <ReasonOption
+                  key={r}
+                  label={r}
+                  selected={draft.q2Reason === r}
+                  onSelect={() => patchDraft({ q2Reason: r })}
+                />
               ))}
             </div>
+          </>
+        )}
 
-            <button
-              onClick={() => addSection(persona.key)}
-              className="focus-ring mt-3 rounded border border-line px-3 py-1.5 text-xs font-medium text-ink/70 hover:border-brass hover:text-brass"
-            >
-              + Add heading
-            </button>
+        {q2NoteRequired && (
+          <>
+            <label className="mt-4 block text-sm font-medium">
+              Note (required): quote the step where the logic breaks
+            </label>
+            <textarea
+              className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
+              rows={3}
+              value={draft.q2Note}
+              onChange={(e) => patchDraft({ q2Note: e.target.value })}
+            />
+          </>
+        )}
+      </div>
+
+      {/* Q3 */}
+      <div className="rounded-lg border border-line bg-white p-5">
+        <h3 className="text-sm font-semibold">Q3 · Viewpoint sharpness (1 to 5)</h3>
+        <p className="mt-1 text-sm text-ink/60">
+          Follow the decision flow step by step; it is sequential, so failing a
+          step means you cannot skip ahead. This is an objective measure,
+          independent of any reader.
+        </p>
+
+        <div className="mt-4">
+          <p className="text-sm font-medium">
+            Step 1. Does the report make any directional call? (Bullish,
+            bearish, upside, downside, pressured, or dominant language AND
+            causal reasoning.)
+          </p>
+          <YesNo
+            value={steps.s1}
+            onChange={(v) =>
+              patchDraft({
+                q3Steps: { s1: v, s2a: null, s2b: null, s3: null, s4: null },
+              })
+            }
+          />
+          {steps.s1 === false && (
+            <p className="mt-1 text-xs text-brass">Score: 1 (Data Relay)</p>
+          )}
+        </div>
+
+        {steps.s1 === true && (
+          <div className="mt-4 border-t border-line pt-4">
+            <p className="text-sm font-medium">
+              Step 2a. Swap in a comparable instrument — does the conclusion no
+              longer hold? (i.e. there is instrument-specific logic)
+            </p>
+            <YesNo
+              value={steps.s2a}
+              onChange={(v) =>
+                patchDraft({
+                  q3Steps: { ...steps, s2a: v, s3: null, s4: null },
+                })
+              }
+            />
+            <p className="mt-3 text-sm font-medium">
+              Step 2b. Does it explicitly state which side, bulls or bears, is
+              dominant?
+            </p>
+            <YesNo
+              value={steps.s2b}
+              onChange={(v) =>
+                patchDraft({
+                  q3Steps: { ...steps, s2b: v, s3: null, s4: null },
+                })
+              }
+            />
+            {(steps.s2a === false || steps.s2b === false) && (
+              <p className="mt-1 text-xs text-brass">Score: 2 (Safe Consensus)</p>
+            )}
           </div>
-        );
-      })}
+        )}
 
-      {error && <p className="text-sm text-warn">Couldn't submit: {error}</p>}
+        {steps.s1 === true && steps.s2a === true && steps.s2b === true && (
+          <div className="mt-4 border-t border-line pt-4">
+            <p className="text-sm font-medium">
+              Step 3. Are there verifiable boundary conditions? (If [indicator]
+              hits [threshold] then [view changes]; specific price levels; time
+              frame.)
+            </p>
+            <YesNo
+              value={steps.s3}
+              onChange={(v) => patchDraft({ q3Steps: { ...steps, s3: v, s4: null } })}
+            />
+            {steps.s3 === false && (
+              <p className="mt-1 text-xs text-brass">Score: 3 (Committed but Unbounded)</p>
+            )}
+          </div>
+        )}
+
+        {steps.s1 === true &&
+          steps.s2a === true &&
+          steps.s2b === true &&
+          steps.s3 === true && (
+            <div className="mt-4 border-t border-line pt-4">
+              <p className="text-sm font-medium">
+                Step 4. Does the report state a mispricing thesis? (It
+                explicitly names a prevailing view and argues it is wrong: "the
+                market says X, we think Y, because Z is being overlooked".)
+                This is a structural test — check whether it names a consensus
+                and argues against it, not whether that characterization is
+                accurate.
+              </p>
+              <YesNo
+                value={steps.s4}
+                onChange={(v) => patchDraft({ q3Steps: { ...steps, s4: v } })}
+              />
+              {steps.s4 === false && (
+                <p className="mt-1 text-xs text-brass">Score: 4 (Verifiable Judgment)</p>
+              )}
+              {steps.s4 === true && (
+                <p className="mt-1 text-xs text-brass">Score: 5 (Sharp Insight)</p>
+              )}
+            </div>
+          )}
+
+        {q3Score !== null && (
+          <p className="mt-4 rounded bg-paper px-3 py-2 text-sm font-semibold text-ink">
+            Q3 sharpness score: {q3Score}
+          </p>
+        )}
+      </div>
+
+      {/* Q4 */}
+      <div className="rounded-lg border border-line bg-white p-5">
+        <h3 className="text-sm font-semibold">Q4 · Safety and compliance</h3>
+        <p className="mt-1 text-sm text-ink/60">
+          3 = fully compliant. 2 = borderline phrasing. 1 = clear violation
+          (FAIL): unconditional buy or sell instruction, return promise,
+          sensitive content, brand risk, or negative inducement. Conditional
+          scenario reasoning ("if [condition] then [direction], target X, stop
+          below Y") is an analytical framework, not investment advice — do not
+          mark it as a violation.
+        </p>
+        <ScoreButtons
+          value={draft.q4Score}
+          onChange={(n) => patchDraft({ q4Score: n as Score13 })}
+          options={[1, 2, 3]}
+        />
+        {q4NoteRequired && (
+          <>
+            <label className="mt-4 block text-sm font-medium">
+              Note (required): quote the offending phrase
+            </label>
+            <textarea
+              className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
+              rows={2}
+              value={draft.q4Note}
+              onChange={(e) => patchDraft({ q4Note: e.target.value })}
+            />
+          </>
+        )}
+      </div>
+
+      {/* Q5 */}
+      <div className="rounded-lg border border-line bg-white p-5">
+        <h3 className="text-sm font-semibold">Q5 · Overall publishability</h3>
+        <p className="mt-1 text-sm text-ink/60">
+          Can this report be published as is to the readers it best serves?
+        </p>
+        <div className="mt-3 space-y-2">
+          {(
+            [
+              ["publishable", "Publishable — no red lines; serves at least one portrait well"],
+              [
+                "publishable_after_revision",
+                "Publishable after revision — no red lines, but weak on Q1 or Q2",
+              ],
+              [
+                "not_publishable",
+                "Not publishable — triggers a red line (Q2 = 1 with unsound reasoning, or Q4 = 1)",
+              ],
+            ] as [Publishability, string][]
+          ).map(([value, label]) => (
+            <ReasonOption
+              key={value}
+              label={label}
+              selected={draft.q5 === value}
+              onSelect={() => patchDraft({ q5: value })}
+            />
+          ))}
+        </div>
+        {!q5Consistent && (
+          <p className="mt-2 text-xs text-warn">
+            {redLine
+              ? "A red line fired (Q2 = 1 with unsound reasoning, or Q4 = 1), so this must be Not publishable."
+              : "No red line fired, so Not publishable doesn't apply — red lines are the only trigger for it."}
+          </p>
+        )}
+      </div>
 
       <div className="flex justify-end">
         <button
-          disabled={!canSubmit || submitting}
-          onClick={onSubmit}
+          disabled={!evalComplete || continuing}
+          onClick={onContinue}
           className="focus-ring rounded bg-ink px-4 py-2 text-sm font-medium text-paper hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-30"
         >
-          {submitting ? "Submitting…" : "Submit task"}
+          {continuing ? "Saving…" : "Complete evaluation, continue to rewrite"}
         </button>
       </div>
     </div>
   );
 }
 
-function DoneScreen() {
+function ReasonOption({
+  label,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   return (
-    <div className="mx-auto mt-10 max-w-md rounded-lg border border-line bg-white p-6 text-center">
-      <h2 className="text-lg font-semibold">Submitted</h2>
-      <p className="mt-2 text-sm text-ink/70">
-        Your work has been recorded. You can close this tab.
-      </p>
+    <button
+      onClick={onSelect}
+      className={`focus-ring block w-full rounded border px-3 py-2 text-left text-sm ${
+        selected
+          ? "border-brass bg-brass/10 text-ink"
+          : "border-line text-ink/70 hover:border-ink/30"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+// ---------- Part B: Track 2 full rewrite ----------
+
+function RewriteForm({
+  draft,
+  patchDraft,
+  name,
+  attestationMatches,
+  originalWords,
+  lowerBound,
+  upperBound,
+  rewriteWords,
+  rewriteInBounds,
+  rewriteComplete,
+  submitting,
+  error,
+  onBackToEval,
+  onSubmit,
+}: {
+  draft: Draft;
+  patchDraft: (p: Partial<Draft>) => void;
+  name: string;
+  attestationMatches: boolean;
+  originalWords: number;
+  lowerBound: number;
+  upperBound: number;
+  rewriteWords: number;
+  rewriteInBounds: boolean;
+  rewriteComplete: boolean;
+  submitting: boolean;
+  error: string | null;
+  onBackToEval: () => void;
+  onSubmit: () => void;
+}) {
+  const chosen = PORTRAITS.find((p) => p.key === draft.rewritePortrait) ?? null;
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-lg border border-line bg-white p-5">
+        <h2 className="text-base font-semibold">Part B · Full rewrite (Track 2)</h2>
+        <p className="mt-1 text-sm text-ink/60">
+          Rewrite the entire report from scratch — not an edit, patch, or
+          annotated version. Stay on the same instrument and the same
+          underlying market situation. Do not invent data: only figures present
+          in the original, or publicly verifiable data you cite with a source.
+          Must pass Q4 compliance. Written by you, not by a model.
+        </p>
+        <PortraitReference />
+      </div>
+
+      <div className="rounded-lg border border-line bg-white p-5">
+        <h3 className="text-sm font-semibold">
+          Choose the portrait this report should serve
+        </h3>
+        <div className="mt-2 flex gap-2">
+          {PORTRAITS.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => patchDraft({ rewritePortrait: p.key })}
+              className={`focus-ring rounded border px-3 py-1.5 text-xs font-medium ${
+                draft.rewritePortrait === p.key
+                  ? "border-brass bg-brass/10 text-brass"
+                  : "border-line text-ink/50 hover:border-ink/30"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {chosen && (
+          <div className="mt-3 rounded border border-line bg-paper px-3 py-2 text-sm text-ink/70">
+            <p className="font-medium text-ink">
+              Your rewrite must land at {chosen.band}
+            </p>
+            <p className="mt-1">{chosen.rewriteMust}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-line bg-white p-5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold">Your rewrite</h3>
+          <span
+            className={`font-mono text-xs ${
+              rewriteInBounds ? "text-ok" : "text-warn"
+            }`}
+          >
+            {rewriteWords} words · allowed {lowerBound}–{upperBound} (original{" "}
+            {originalWords})
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-ink/50">
+          Length must be within plus or minus 20% of the original report's word
+          count. Pasting is disabled; the rewrite must be typed.
+        </p>
+        <textarea
+          className="focus-ring mt-2 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
+          rows={18}
+          value={draft.rewriteText}
+          onChange={(e) => patchDraft({ rewriteText: e.target.value })}
+          placeholder="Write the complete replacement report here."
+        />
+
+        <label className="mt-4 flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={draft.dataFlag}
+            onChange={(e) => patchDraft({ dataFlag: e.target.checked })}
+          />
+          <span>
+            Data integrity flag: I believe a figure in the original is
+            factually wrong or internally inconsistent
+          </span>
+        </label>
+        {draft.dataFlag && (
+          <textarea
+            className="focus-ring mt-2 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
+            rows={2}
+            value={draft.dataFlagNote}
+            onChange={(e) => patchDraft({ dataFlagNote: e.target.value })}
+            placeholder="Specify the figure and the problem."
+          />
+        )}
+      </div>
+
+      <div className="rounded-lg border border-warn/40 bg-warn/5 p-5">
+        <h3 className="text-sm font-semibold text-warn">No-AI pledge (required)</h3>
+        <p className="mt-1 text-sm text-ink/70">
+          I pledge that I have not used an LLM or any AI tool, in any way, to
+          complete this task — no scoring, no drafting, no editing, no
+          phrasing suggestions. All work above is my own.
+        </p>
+        <label className="mt-3 block text-sm font-medium">
+          Type your full name to sign
+        </label>
+        <input
+          className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm"
+          value={draft.attestationSignature}
+          onChange={(e) => patchDraft({ attestationSignature: e.target.value })}
+          placeholder="Full name"
+        />
+        <p className="mt-1 text-xs text-ink/50">
+          Must match the name you entered at the start ("{name || "..."}")
+          exactly.
+        </p>
+        {draft.attestationSignature.trim().length > 0 && !attestationMatches && (
+          <p className="mt-1 text-xs text-warn">
+            Doesn't match the name you started with — check spelling.
+          </p>
+        )}
+      </div>
+
+      {error && <p className="text-sm text-warn">Couldn't submit: {error}</p>}
+
+      <div className="flex justify-between">
+        <button
+          onClick={onBackToEval}
+          className="focus-ring text-sm text-ink/60 hover:text-ink"
+        >
+          ← Back to evaluation
+        </button>
+        <button
+          disabled={!rewriteComplete || submitting}
+          onClick={onSubmit}
+          className="focus-ring rounded bg-ink px-4 py-2 text-sm font-medium text-paper hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          {submitting ? "Submitting…" : "Submit task"}
+        </button>
+      </div>
     </div>
   );
 }
