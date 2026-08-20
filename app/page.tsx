@@ -511,7 +511,7 @@ function GateScreen({
     <div className="mx-auto mt-10 max-w-md rounded-lg border border-line bg-white p-6">
       <h2 className="text-lg font-semibold">Before you start</h2>
       <p className="mt-2 text-sm text-ink/70">
-        There are three reports: SOL, BTC, and US100. Each is one task that
+        There are three reports: SOL, BTC, and Nasdaq. Each is one task that
         combines an evaluation and a full rewrite.{" "}
         <span className="font-medium text-ink">
           All three must be completed to join the project.

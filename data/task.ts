@@ -1,4 +1,4 @@
-export type TaskKey = "sol" | "btc" | "us100";
+export type TaskKey = "sol" | "btc" | "nasdaq";
 export type PortraitKey = "G1" | "G2" | "G3";
 
 export type ReportSection = { heading: string; body: string };
@@ -21,7 +21,7 @@ export function reportWordCount(task: ReportTask): number {
   return wordCount(task.sections.map((s) => `${s.heading} ${s.body}`).join(" "));
 }
 
-export const TASK_ORDER: TaskKey[] = ["sol", "btc", "us100"];
+export const TASK_ORDER: TaskKey[] = ["sol", "btc", "nasdaq"];
 
 export const REPORTS: Record<TaskKey, ReportTask> = {
   sol: {
@@ -102,29 +102,29 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     ],
   },
 
-  us100: {
-    taskId: "us100-market-report-2026-08-18",
-    label: "US100 Market Report",
-    title: "US100 Market Report",
-    ticker: "EQ_US100",
+  nasdaq: {
+    taskId: "nasdaq-market-report-2026-08-18",
+    label: "Nasdaq Market Report",
+    title: "Nasdaq Market Report",
+    ticker: "NDX",
     category: "Equity · ETF (index)",
     generatedAt: "2026-08-18 18:03:22 (UTC+8)",
     sections: [
       {
         heading: "Core Conclusion",
-        body: "US100 is undergoing a short-term correction within a still-constructive medium-term trend.\n\nThe index closed at $29,731.12, down 1.11%, as elevated Treasury yields and persistent inflation pressure continued to weigh on long-duration technology valuations.\n\nThe key tension is now clear: higher yields are compressing valuations, while softer consumption is weakening growth expectations without yet providing enough disinflation to justify rapid monetary easing.\n\nNear-term bias: bearish below $30,000, with $29,000 the next meaningful downside area. The broader trend remains constructive unless the correction begins to break the medium-term structure.\n\n[US100 stock · EQ_US100 Trade entry card]",
+        body: "Nasdaq is undergoing a short-term correction within a still-constructive medium-term trend.\n\nThe index closed at $29,731.12, down 1.11%, as elevated Treasury yields and persistent inflation pressure continued to weigh on long-duration technology valuations.\n\nThe key tension is now clear: higher yields are compressing valuations, while softer consumption is weakening growth expectations without yet providing enough disinflation to justify rapid monetary easing.\n\nNear-term bias: bearish below $30,000, with $29,000 the next meaningful downside area. The broader trend remains constructive unless the correction begins to break the medium-term structure.\n\n[Nasdaq stock · NDX Trade entry card]",
       },
       {
         heading: "Market Overview",
-        body: "US100 fell 1.11%, or $334.45, closing at $29,731.12 after trading between $29,713.29 and $30,088.82.\n\nThe close near the lower end of the session range indicates renewed short-term selling pressure.\n\nAt the same time, the index remains up 8.54% over one month, meaning the current weakness is better viewed as a correction within a broader advance rather than a confirmed medium-term reversal.\n\nDaily Change: -1.11% (Short-term selling pressure)\nPrice Change: -$334.45 (Weak session)\n1-Week Performance: -1.44% (Correction underway)\n1-Month Performance: +8.54% (Broader uptrend remains intact)",
+        body: "Nasdaq fell 1.11%, or $334.45, closing at $29,731.12 after trading between $29,713.29 and $30,088.82.\n\nThe close near the lower end of the session range indicates renewed short-term selling pressure.\n\nAt the same time, the index remains up 8.54% over one month, meaning the current weakness is better viewed as a correction within a broader advance rather than a confirmed medium-term reversal.\n\nDaily Change: -1.11% (Short-term selling pressure)\nPrice Change: -$334.45 (Weak session)\n1-Week Performance: -1.44% (Correction underway)\n1-Month Performance: +8.54% (Broader uptrend remains intact)",
       },
       {
-        heading: "What Is Driving US100",
-        body: "1. Treasury yields are the dominant near-term driver\nThe 30-year Treasury yield reached 5.31%, while the latest auction cleared near 5.22%. For a technology-heavy index, this matters directly: higher risk-free rates increase the discount rate applied to long-duration earnings, putting pressure on equity valuations even when company fundamentals remain unchanged. Heavy Treasury supply and weaker foreign demand are also keeping term premiums elevated, reinforcing the rate headwind.\n\n2. Inflation remains too sticky for an easy policy pivot\nU.S. CPI held at 3.40% YoY and 0.10% MoM. Inflation is no longer accelerating sharply, but it remains high enough to constrain the Federal Reserve's ability to ease policy aggressively. That leaves US100 exposed to a \"higher-for-longer\" rate environment.\n\n3. Growth is weakening at an awkward time\nRetail sales fell 0.60% MoM, while core retail sales declined 0.30%. Normally, weaker consumption could support expectations for easier monetary policy. But with inflation still elevated, softer growth currently creates a less favorable combination: slower demand without immediate relief from high discount rates.\n\n4. FOMC communication is the next catalyst\nThe upcoming FOMC minutes are important because the market needs clarity on whether policymakers are becoming more concerned about slowing growth or remain primarily focused on inflation persistence. A hawkish interpretation would likely keep yields elevated and prolong valuation pressure. A more dovish signal could reduce the discount-rate headwind, but follow-through would still require confirmation from subsequent inflation and labor-market data.",
+        heading: "What Is Driving Nasdaq",
+        body: "1. Treasury yields are the dominant near-term driver\nThe 30-year Treasury yield reached 5.31%, while the latest auction cleared near 5.22%. For a technology-heavy index, this matters directly: higher risk-free rates increase the discount rate applied to long-duration earnings, putting pressure on equity valuations even when company fundamentals remain unchanged. Heavy Treasury supply and weaker foreign demand are also keeping term premiums elevated, reinforcing the rate headwind.\n\n2. Inflation remains too sticky for an easy policy pivot\nU.S. CPI held at 3.40% YoY and 0.10% MoM. Inflation is no longer accelerating sharply, but it remains high enough to constrain the Federal Reserve's ability to ease policy aggressively. That leaves Nasdaq exposed to a \"higher-for-longer\" rate environment.\n\n3. Growth is weakening at an awkward time\nRetail sales fell 0.60% MoM, while core retail sales declined 0.30%. Normally, weaker consumption could support expectations for easier monetary policy. But with inflation still elevated, softer growth currently creates a less favorable combination: slower demand without immediate relief from high discount rates.\n\n4. FOMC communication is the next catalyst\nThe upcoming FOMC minutes are important because the market needs clarity on whether policymakers are becoming more concerned about slowing growth or remain primarily focused on inflation persistence. A hawkish interpretation would likely keep yields elevated and prolong valuation pressure. A more dovish signal could reduce the discount-rate headwind, but follow-through would still require confirmation from subsequent inflation and labor-market data.",
       },
       {
         heading: "Technical Setup",
-        body: "Short-term trend: US100 is below its 10-day MA at $29,897.91, confirming that near-term momentum has weakened.\n\nMedium-term trend: Price remains above the 20-day MA at $29,467.09, while the 10-day MA remains above the 20-day MA. This creates a mixed but coherent structure: short-term corrective, medium-term constructive.\n\nRange: The six-month range is $26,524.21–$30,759.71. At $29,731.12, US100 remains in the upper portion of that range, reinforcing the view that the broader advance has not yet been invalidated.\n\nTechnical Read\nThe index has lost short-term momentum, but the decline has not yet become a structural medium-term breakdown. The current setup therefore favors caution rather than outright trend reversal.",
+        body: "Short-term trend: Nasdaq is below its 10-day MA at $29,897.91, confirming that near-term momentum has weakened.\n\nMedium-term trend: Price remains above the 20-day MA at $29,467.09, while the 10-day MA remains above the 20-day MA. This creates a mixed but coherent structure: short-term corrective, medium-term constructive.\n\nRange: The six-month range is $26,524.21–$30,759.71. At $29,731.12, Nasdaq remains in the upper portion of that range, reinforcing the view that the broader advance has not yet been invalidated.\n\nTechnical Read\nThe index has lost short-term momentum, but the decline has not yet become a structural medium-term breakdown. The current setup therefore favors caution rather than outright trend reversal.",
       },
       {
         heading: "What Changes the View",
@@ -136,7 +136,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
       },
       {
         heading: "Bottom Line",
-        body: "US100's near-term setup has turned bearish, but the broader trend has not yet broken. Elevated yields remain the key pressure point: below $30,000, the correction can extend toward $29,000; a sustained reclaim of $30,000 would materially improve the short-term outlook.",
+        body: "Nasdaq's near-term setup has turned bearish, but the broader trend has not yet broken. Elevated yields remain the key pressure point: below $30,000, the correction can extend toward $29,000; a sustained reclaim of $30,000 would materially improve the short-term outlook.",
       },
     ],
   },
