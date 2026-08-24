@@ -310,6 +310,10 @@ create table if not exists public.report_submissions (
 
   -- Part B: Track 2 full rewrite
   rewrite_portrait text not null,    -- 'G1' | 'G2' | 'G3' (chosen by the expert)
+  -- The app collects this as structured title + bullet-point sections, then
+  -- flattens it into one markdown string before it lands here — e.g.
+  -- "## Core Conclusion\n- bullet one\n- bullet two\n\n## Macro Analysis\n- ...".
+  -- No structure is stored separately; this column is the whole rewrite.
   rewrite_text text not null,
   rewrite_word_count int not null,
   original_word_count int not null,

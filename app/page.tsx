@@ -9,10 +9,13 @@ import {
   Q2_UNSOUND_REASONS,
   Q2_INSUFFICIENT_REASONS,
   reportWordCount,
-  wordCount,
+  emptyRewriteSection,
+  sectionsToMarkdown,
+  sectionsWordCount,
   TaskKey,
   PortraitKey,
   ReportTask,
+  RewriteSection,
 } from "@/data/task";
 
 type Step = "gate" | "task" | "done";
@@ -36,7 +39,7 @@ type Draft = {
   q4Note: string;
   q5: Publishability | null;
   rewritePortrait: PortraitKey | null;
-  rewriteText: string;
+  rewriteSections: RewriteSection[];
   dataFlag: boolean;
   dataFlagNote: string;
   attestationSignature: string;
@@ -56,7 +59,7 @@ function emptyDraft(): Draft {
     q4Note: "",
     q5: null,
     rewritePortrait: null,
-    rewriteText: "",
+    rewriteSections: [emptyRewriteSection()],
     dataFlag: false,
     dataFlagNote: "",
     attestationSignature: "",
@@ -70,7 +73,7 @@ function isDraft(d: unknown): d is Draft {
     (v.phase === "eval" || v.phase === "rewrite") &&
     !!v.q1Ratings &&
     !!v.q3Steps &&
-    typeof v.rewriteText === "string"
+    Array.isArray(v.rewriteSections)
   );
 }
 
@@ -161,7 +164,7 @@ export default function Page() {
   const originalWords = reportWordCount(report);
   const lowerBound = Math.ceil(originalWords * 0.8);
   const upperBound = originalWords < 150 ? 150 : Math.floor(originalWords * 1.2);
-  const rewriteWords = wordCount(draft.rewriteText);
+  const rewriteWords = sectionsWordCount(draft.rewriteSections);
 
   // ---------- Autosave ----------
   useEffect(() => {
@@ -171,6 +174,32 @@ export default function Page() {
 
   function patchDraft(patch: Partial<Draft>) {
     setDraft((prev) => ({ ...prev, ...patch }));
+  }
+
+  function addRewriteSection() {
+    setDraft((prev) => ({
+      ...prev,
+      rewriteSections: [...prev.rewriteSections, emptyRewriteSection()],
+    }));
+  }
+
+  function removeRewriteSection(index: number) {
+    setDraft((prev) => {
+      if (prev.rewriteSections.length <= 1) return prev;
+      return {
+        ...prev,
+        rewriteSections: prev.rewriteSections.filter((_, i) => i !== index),
+      };
+    });
+  }
+
+  function updateRewriteSection(index: number, patch: Partial<RewriteSection>) {
+    setDraft((prev) => ({
+      ...prev,
+      rewriteSections: prev.rewriteSections.map((s, i) =>
+        i === index ? { ...s, ...patch } : s
+      ),
+    }));
   }
 
   // ---------- Validation ----------
@@ -218,12 +247,19 @@ export default function Page() {
     q5Consistent;
 
   const rewriteInBounds = rewriteWords >= lowerBound && rewriteWords <= upperBound;
+  const rewriteSectionsFilledIn =
+    draft.rewriteSections.length > 0 &&
+    draft.rewriteSections.every(
+      (s) =>
+        s.heading.trim().length > 0 &&
+        s.bullets.split("\n").some((b) => b.trim().length > 0)
+    );
   const attestationMatches =
     draft.attestationSignature.trim().length > 0 &&
     draft.attestationSignature.trim().toLowerCase() === name.trim().toLowerCase();
   const rewriteComplete =
     draft.rewritePortrait !== null &&
-    draft.rewriteText.trim().length > 0 &&
+    rewriteSectionsFilledIn &&
     rewriteInBounds &&
     (!draft.dataFlag || draft.dataFlagNote.trim().length > 0) &&
     attestationMatches;
@@ -324,7 +360,7 @@ export default function Page() {
       q5_publishability: draft.q5,
 
       rewrite_portrait: draft.rewritePortrait,
-      rewrite_text: draft.rewriteText.trim(),
+      rewrite_text: sectionsToMarkdown(draft.rewriteSections).trim(),
       rewrite_word_count: rewriteWords,
       original_word_count: originalWords,
       data_integrity_flag: draft.dataFlag,
@@ -366,6 +402,8 @@ export default function Page() {
       onContextMenu={blockCopyExceptFormFields}
       onDragStart={blockCopyExceptFormFields}
       onPaste={blockPaste}
+      onDrop={blockPaste}
+      onDragOver={blockPaste}
     >
       <header className="border-b border-line pb-4">
         <p className="font-mono text-xs uppercase tracking-wider text-brass">
@@ -446,6 +484,9 @@ export default function Page() {
               <RewriteForm
                 draft={draft}
                 patchDraft={patchDraft}
+                addRewriteSection={addRewriteSection}
+                removeRewriteSection={removeRewriteSection}
+                updateRewriteSection={updateRewriteSection}
                 name={name}
                 attestationMatches={attestationMatches}
                 originalWords={originalWords}
@@ -601,6 +642,11 @@ function ReportPanel({ report }: { report: ReportTask }) {
             </p>
           </div>
         ))}
+        {/* Not visible to a human reader (Tailwind's standard sr-only
+            pattern), but present in the DOM and in accessibility-tree
+            snapshots that browser-automation agents commonly use to read
+            a page. See ReportTask.canary in data/task.ts for why. */}
+        <span className="sr-only">{report.canary}</span>
       </div>
     </div>
   );
@@ -1082,6 +1128,9 @@ function ReasonOption({
 function RewriteForm({
   draft,
   patchDraft,
+  addRewriteSection,
+  removeRewriteSection,
+  updateRewriteSection,
   name,
   attestationMatches,
   originalWords,
@@ -1097,6 +1146,9 @@ function RewriteForm({
 }: {
   draft: Draft;
   patchDraft: (p: Partial<Draft>) => void;
+  addRewriteSection: () => void;
+  removeRewriteSection: (index: number) => void;
+  updateRewriteSection: (index: number, patch: Partial<RewriteSection>) => void;
   name: string;
   attestationMatches: boolean;
   originalWords: number;
@@ -1121,7 +1173,10 @@ function RewriteForm({
           annotated version. Stay on the same instrument and the same
           underlying market situation. Do not invent data: only figures present
           in the original, or publicly verifiable data you cite with a source.
-          Must pass Q4 compliance. Written by you, not by a model.
+          Must pass Q4 compliance. Written by you, not by a model. Write it as
+          a title followed by bullet points, repeated for as many sections as
+          the rewrite needs — the same title/bullet-point structure the
+          original report uses.
         </p>
         <PortraitReference />
       </div>
@@ -1168,16 +1223,88 @@ function RewriteForm({
           </span>
         </div>
         <p className="mt-1 text-xs text-ink/50">
-          Length must be within plus or minus 20% of the original report's word
-          count. Pasting is disabled; the rewrite must be typed.
+          One title and its bullet points per section — add as many sections
+          as the rewrite needs. Length must be within plus or minus 20% of the
+          original report's word count. Pasting is disabled; everything must
+          be typed.
         </p>
-        <textarea
-          className="focus-ring mt-2 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
-          rows={18}
-          value={draft.rewriteText}
-          onChange={(e) => patchDraft({ rewriteText: e.target.value })}
-          placeholder="Write the complete replacement report here."
-        />
+
+        <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div className="space-y-4">
+            {draft.rewriteSections.map((section, i) => (
+              <div key={i} className="rounded border border-line p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-ink/50">
+                    Section {i + 1}
+                  </span>
+                  {draft.rewriteSections.length > 1 && (
+                    <button
+                      onClick={() => removeRewriteSection(i)}
+                      className="focus-ring text-xs text-ink/40 hover:text-warn"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <input
+                  className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm font-medium"
+                  value={section.heading}
+                  onChange={(e) => updateRewriteSection(i, { heading: e.target.value })}
+                  placeholder="Section title, e.g. Core Conclusion"
+                />
+                <textarea
+                  className="focus-ring mt-2 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
+                  rows={4}
+                  value={section.bullets}
+                  onChange={(e) => updateRewriteSection(i, { bullets: e.target.value })}
+                  placeholder={"One bullet point per line."}
+                />
+              </div>
+            ))}
+
+            <button
+              onClick={addRewriteSection}
+              className="focus-ring rounded border border-line px-3 py-1.5 text-xs font-medium text-ink/70 hover:border-brass hover:text-brass"
+            >
+              + Add section
+            </button>
+          </div>
+
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">
+              Preview
+            </p>
+            <div className="mt-1 rounded border border-line bg-paper px-4 py-3">
+              {draft.rewriteSections.every(
+                (s) => !s.heading.trim() && !s.bullets.trim()
+              ) ? (
+                <p className="text-sm text-ink/40">
+                  Your rewrite will preview here as you type.
+                </p>
+              ) : (
+                draft.rewriteSections.map((section, i) => {
+                  const bullets = section.bullets
+                    .split("\n")
+                    .map((b) => b.trim())
+                    .filter(Boolean);
+                  if (!section.heading.trim() && bullets.length === 0) return null;
+                  return (
+                    <div key={i} className="mb-4 last:mb-0">
+                      <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-brass">
+                        {section.heading.trim() || "(untitled section)"}
+                      </p>
+                      <ul className="mt-1 list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-ink/90">
+                        {bullets.map((b, bi) => (
+                          <li key={bi}>{b}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
 
         <label className="mt-4 flex items-start gap-2 text-sm">
           <input

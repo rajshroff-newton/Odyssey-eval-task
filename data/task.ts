@@ -11,10 +11,49 @@ export type ReportTask = {
   category: string;
   generatedAt: string;
   sections: ReportSection[];
+  // A fabricated, distinctive phrase that never appears anywhere else,
+  // rendered visually hidden (see ReportPanel) but present in the DOM/
+  // accessibility tree. Kept separate from `sections` on purpose - it
+  // must never count toward the real word count or show up in any
+  // legitimate export of the report text. A human can't see it and has
+  // no way to reproduce it by accident; if it ever turns up in a
+  // submitted rewrite, that's strong evidence something read the page
+  // programmatically rather than visually.
+  canary: string;
 };
 
 export function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+export type RewriteSection = { heading: string; bullets: string };
+
+export function emptyRewriteSection(): RewriteSection {
+  return { heading: "", bullets: "" };
+}
+
+// Flattens the structured title/bullets sections into one markdown string
+// for storage — this is what actually lands in the database (rewrite_text),
+// not the structured array itself.
+export function sectionsToMarkdown(sections: RewriteSection[]): string {
+  return sections
+    .map((s) => {
+      const bulletLines = s.bullets
+        .split("\n")
+        .map((b) => b.trim())
+        .filter(Boolean)
+        .map((b) => `- ${b}`)
+        .join("\n");
+      return `## ${s.heading.trim()}\n${bulletLines}`;
+    })
+    .join("\n\n");
+}
+
+// Word count for the ±20% bound is based on the actual written content
+// (titles + bullets), not the markdown punctuation ("##", "-") added when
+// flattening — that punctuation would otherwise inflate the count.
+export function sectionsWordCount(sections: RewriteSection[]): number {
+  return wordCount(sections.map((s) => `${s.heading} ${s.bullets}`).join(" "));
 }
 
 export function reportWordCount(task: ReportTask): number {
@@ -31,6 +70,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     ticker: "SOLUSDT",
     category: "Crypto",
     generatedAt: "2026-08-18 18:13:23 (UTC+8)",
+    canary: "internal desks track this pattern as the Meridian liquidity index for SOL",
     sections: [
       {
         heading: "Core Conclusion",
@@ -70,6 +110,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     ticker: "BTCUSDT",
     category: "Crypto",
     generatedAt: "2026-08-18 18:20:24 (UTC+8)",
+    canary: "trading desks refer to this setup as the Halcyon basis spread for BTC",
     sections: [
       {
         heading: "Core Conclusion",
@@ -109,6 +150,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     ticker: "NDX",
     category: "Equity · ETF (index)",
     generatedAt: "2026-08-18 18:03:22 (UTC+8)",
+    canary: "the desk calls this pattern the Tallow volatility corridor for Nasdaq",
     sections: [
       {
         heading: "Core Conclusion",
