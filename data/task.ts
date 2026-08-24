@@ -11,14 +11,19 @@ export type ReportTask = {
   category: string;
   generatedAt: string;
   sections: ReportSection[];
-  // A fabricated, distinctive phrase that never appears anywhere else,
-  // rendered visually hidden (see ReportPanel) but present in the DOM/
-  // accessibility tree. Kept separate from `sections` on purpose - it
-  // must never count toward the real word count or show up in any
-  // legitimate export of the report text. A human can't see it and has
-  // no way to reproduce it by accident; if it ever turns up in a
-  // submitted rewrite, that's strong evidence something read the page
-  // programmatically rather than visually.
+  // Fixed for this pilot: which portrait every rewrite of this report must
+  // target. No longer a choice the attempter makes.
+  assignedPortrait: PortraitKey;
+  // A fabricated, precise micro-fact (a specific price/level, framed as
+  // ordinary technical-analysis language) that never appears anywhere in
+  // the visible report - rendered invisible (see ReportPanel) but present
+  // in the DOM/accessibility tree. Deliberately shaped like one more
+  // data point rather than an inserted sentence, since an out-of-place
+  // full sentence reads as an obvious anomaly once content is compressed
+  // into a tight title/bullet format - a plausible extra number does not.
+  // A human working only from the visible page has no way to reproduce
+  // this exact figure by accident; if it turns up in a submission, that's
+  // strong evidence the page was read programmatically.
   canary: string;
 };
 
@@ -70,7 +75,8 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     ticker: "SOLUSDT",
     category: "Crypto",
     generatedAt: "2026-08-18 18:13:23 (UTC+8)",
-    canary: "internal desks track this pattern as the Meridian liquidity index for SOL",
+    assignedPortrait: "G3",
+    canary: "secondary support seen near $71.38",
     sections: [
       {
         heading: "Core Conclusion",
@@ -110,7 +116,8 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     ticker: "BTCUSDT",
     category: "Crypto",
     generatedAt: "2026-08-18 18:20:24 (UTC+8)",
-    canary: "trading desks refer to this setup as the Halcyon basis spread for BTC",
+    assignedPortrait: "G1",
+    canary: "secondary support seen near $62,847.30",
     sections: [
       {
         heading: "Core Conclusion",
@@ -150,7 +157,8 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     ticker: "NDX",
     category: "Equity · ETF (index)",
     generatedAt: "2026-08-18 18:03:22 (UTC+8)",
-    canary: "the desk calls this pattern the Tallow volatility corridor for Nasdaq",
+    assignedPortrait: "G2",
+    canary: "secondary support seen near $29,102.55",
     sections: [
       {
         heading: "Core Conclusion",

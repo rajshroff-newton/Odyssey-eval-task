@@ -296,12 +296,12 @@ export default function Page() {
     // immediately (server timestamp).
     const existing = loadDraft(taskKey, email);
     if (existing) {
-      setDraft(existing);
+      setDraft({ ...existing, rewritePortrait: report.assignedPortrait });
       if (existing.phase === "rewrite") {
         await recordEvalComplete(id);
       }
     } else {
-      setDraft(emptyDraft());
+      setDraft({ ...emptyDraft(), rewritePortrait: report.assignedPortrait });
     }
 
     setStartingTask(false);
@@ -382,29 +382,8 @@ export default function Page() {
     setStep("done");
   }
 
-  // ---------- Copy / paste guards ----------
-
-  function blockCopyExceptFormFields(e: React.SyntheticEvent) {
-    const tag = (e.target as HTMLElement).tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-    e.preventDefault();
-  }
-
-  function blockPaste(e: React.SyntheticEvent) {
-    e.preventDefault();
-  }
-
   return (
-    <main
-      className="mx-auto max-w-6xl select-none px-4 py-8 lg:px-8"
-      onCopy={blockCopyExceptFormFields}
-      onCut={blockCopyExceptFormFields}
-      onContextMenu={blockCopyExceptFormFields}
-      onDragStart={blockCopyExceptFormFields}
-      onPaste={blockPaste}
-      onDrop={blockPaste}
-      onDragOver={blockPaste}
-    >
+    <main className="mx-auto max-w-6xl px-4 py-8 lg:px-8">
       <header className="border-b border-line pb-4">
         <p className="font-mono text-xs uppercase tracking-wider text-brass">
           Report task · {report.taskId}
@@ -489,6 +468,7 @@ export default function Page() {
                 updateRewriteSection={updateRewriteSection}
                 name={name}
                 attestationMatches={attestationMatches}
+                report={report}
                 originalWords={originalWords}
                 lowerBound={lowerBound}
                 upperBound={upperBound}
@@ -1133,6 +1113,7 @@ function RewriteForm({
   updateRewriteSection,
   name,
   attestationMatches,
+  report,
   originalWords,
   lowerBound,
   upperBound,
@@ -1151,6 +1132,7 @@ function RewriteForm({
   updateRewriteSection: (index: number, patch: Partial<RewriteSection>) => void;
   name: string;
   attestationMatches: boolean;
+  report: ReportTask;
   originalWords: number;
   lowerBound: number;
   upperBound: number;
@@ -1163,6 +1145,12 @@ function RewriteForm({
   onSubmit: () => void;
 }) {
   const chosen = PORTRAITS.find((p) => p.key === draft.rewritePortrait) ?? null;
+  const todayFormatted = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 
   return (
     <div className="space-y-6">
@@ -1182,23 +1170,13 @@ function RewriteForm({
       </div>
 
       <div className="rounded-lg border border-line bg-white p-5">
-        <h3 className="text-sm font-semibold">
-          Choose the portrait this report should serve
-        </h3>
-        <div className="mt-2 flex gap-2">
-          {PORTRAITS.map((p) => (
-            <button
-              key={p.key}
-              onClick={() => patchDraft({ rewritePortrait: p.key })}
-              className={`focus-ring rounded border px-3 py-1.5 text-xs font-medium ${
-                draft.rewritePortrait === p.key
-                  ? "border-brass bg-brass/10 text-brass"
-                  : "border-line text-ink/50 hover:border-ink/30"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+        <h3 className="text-sm font-semibold">Assigned portrait</h3>
+        <p className="mt-1 text-sm text-ink/60">
+          Every rewrite of this report targets the same portrait — it isn't a
+          choice for this task.
+        </p>
+        <div className="mt-3 inline-flex items-center gap-2 rounded border border-brass bg-brass/10 px-3 py-1.5 text-sm font-medium text-brass">
+          {chosen?.label}
         </div>
         {chosen && (
           <div className="mt-3 rounded border border-line bg-paper px-3 py-2 text-sm text-ink/70">
@@ -1208,6 +1186,16 @@ function RewriteForm({
             <p className="mt-1">{chosen.rewriteMust}</p>
           </div>
         )}
+        <div className="mt-3 rounded border border-line bg-paper px-3 py-2 text-sm text-ink/70">
+          <p className="font-medium text-ink">
+            Write as of today's date, {todayFormatted}.
+          </p>
+          <p className="mt-1">
+            Any dates, "recent"/"upcoming" language, or timeframes in your
+            rewrite should be relative to today — not the original report's
+            stated generation date of {report.generatedAt}.
+          </p>
+        </div>
       </div>
 
       <div className="rounded-lg border border-line bg-white p-5">
@@ -1225,8 +1213,7 @@ function RewriteForm({
         <p className="mt-1 text-xs text-ink/50">
           One title and its bullet points per section — add as many sections
           as the rewrite needs. Length must be within plus or minus 20% of the
-          original report's word count. Pasting is disabled; everything must
-          be typed.
+          original report's word count.
         </p>
 
         <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
