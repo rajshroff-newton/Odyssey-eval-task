@@ -123,7 +123,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     category: "Crypto",
     generatedAt: "2026-08-18 18:20:24 (UTC+8)",
     assignedPortrait: "G1",
-    canary: "secondary support seen near $62,847.30",
+    canary: "worth watching if price slips toward $62,847.30",
     sections: [
       {
         heading: "Core Conclusion",

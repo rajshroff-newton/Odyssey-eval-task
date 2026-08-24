@@ -468,7 +468,6 @@ export default function Page() {
                 updateRewriteSection={updateRewriteSection}
                 name={name}
                 attestationMatches={attestationMatches}
-                report={report}
                 originalWords={originalWords}
                 lowerBound={lowerBound}
                 upperBound={upperBound}
@@ -1123,7 +1122,6 @@ function RewriteForm({
   updateRewriteSection,
   name,
   attestationMatches,
-  report,
   originalWords,
   lowerBound,
   upperBound,
@@ -1142,7 +1140,6 @@ function RewriteForm({
   updateRewriteSection: (index: number, patch: Partial<RewriteSection>) => void;
   name: string;
   attestationMatches: boolean;
-  report: ReportTask;
   originalWords: number;
   lowerBound: number;
   upperBound: number;
@@ -1155,12 +1152,6 @@ function RewriteForm({
   onSubmit: () => void;
 }) {
   const chosen = PORTRAITS.find((p) => p.key === draft.rewritePortrait) ?? null;
-  const todayFormatted = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
 
   return (
     <div className="space-y-6">
@@ -1196,16 +1187,6 @@ function RewriteForm({
             <p className="mt-1">{chosen.rewriteMust}</p>
           </div>
         )}
-        <div className="mt-3 rounded border border-line bg-paper px-3 py-2 text-sm text-ink/70">
-          <p className="font-medium text-ink">
-            Write as of today's date, {todayFormatted}.
-          </p>
-          <p className="mt-1">
-            Any dates, "recent"/"upcoming" language, or timeframes in your
-            rewrite should be relative to today — not the original report's
-            stated generation date of {report.generatedAt}.
-          </p>
-        </div>
       </div>
 
       <div className="rounded-lg border border-line bg-white p-5">
