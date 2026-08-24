@@ -1257,7 +1257,7 @@ function RewriteForm({
                   rows={4}
                   value={section.bullets}
                   onChange={(e) => updateRewriteSection(i, { bullets: e.target.value })}
-                  placeholder={"One bullet point per line."}
+                  placeholder={"Hitting enter creates a bullet point."}
                 />
               </div>
             ))}
