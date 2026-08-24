@@ -612,21 +612,31 @@ function ReportPanel({ report }: { report: ReportTask }) {
         </p>
       </div>
       <div className="px-4 py-3">
-        {report.sections.map((s) => (
+        {report.sections.map((s, i) => (
           <div key={s.heading} className="mb-5 last:mb-0">
             <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-brass">
               {s.heading}
             </p>
             <p className="mt-1 whitespace-pre-line text-[13px] leading-relaxed text-ink/90">
               {s.body}
+              {i === 0 && (
+                // Genuinely in the normal text flow (not absolutely
+                // positioned or clipped out of it), so a manual drag-select
+                // or Ctrl+A sweeps over it the same as any other text on
+                // the page - color-matched to the white background and
+                // rendered at a near-zero size is what makes it invisible,
+                // not removal from the layout. This is what lets it survive
+                // an ordinary copy-paste, which the previous (DOM/
+                // accessibility-only) approach did not. See
+                // ReportTask.canary in data/task.ts for why.
+                <span style={{ fontSize: "1px", color: "#ffffff" }}>
+                  {" "}
+                  {report.canary}
+                </span>
+              )}
             </p>
           </div>
         ))}
-        {/* Not visible to a human reader (Tailwind's standard sr-only
-            pattern), but present in the DOM and in accessibility-tree
-            snapshots that browser-automation agents commonly use to read
-            a page. See ReportTask.canary in data/task.ts for why. */}
-        <span className="sr-only">{report.canary}</span>
       </div>
     </div>
   );

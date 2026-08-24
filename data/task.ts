@@ -16,14 +16,20 @@ export type ReportTask = {
   assignedPortrait: PortraitKey;
   // A fabricated, precise micro-fact (a specific price/level, framed as
   // ordinary technical-analysis language) that never appears anywhere in
-  // the visible report - rendered invisible (see ReportPanel) but present
-  // in the DOM/accessibility tree. Deliberately shaped like one more
-  // data point rather than an inserted sentence, since an out-of-place
-  // full sentence reads as an obvious anomaly once content is compressed
-  // into a tight title/bullet format - a plausible extra number does not.
-  // A human working only from the visible page has no way to reproduce
-  // this exact figure by accident; if it turns up in a submission, that's
-  // strong evidence the page was read programmatically.
+  // the visible report. Rendered as genuine in-flow text - color-matched
+  // to the report panel's white background and set to a near-zero font
+  // size - rather than being taken out of the layout entirely (an earlier
+  // version used position:absolute + clip, which is invisible to a human
+  // AND to a normal copy-paste selection, since a mouse-drag or Ctrl+A
+  // follows visual layout and never sweeps over a clipped, off-screen
+  // element - that version never survived a human manually copying the
+  // report). Being in-flow means any selection method - manual drag,
+  // Ctrl+A, or a script reading the DOM - picks it up the same way. A
+  // human working only from the visible page has no way to reproduce this
+  // exact figure by accident; if it turns up in a submission, that's
+  // strong evidence the report's actual page content (not just a
+  // screenshot or a human's own reading of it) made it into the pipeline
+  // that produced the rewrite.
   canary: string;
 };
 
