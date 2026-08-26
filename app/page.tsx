@@ -488,8 +488,8 @@ export default function Page() {
         <div className="mx-auto mt-10 max-w-md rounded-lg border border-line bg-white p-6 text-center">
           <h2 className="text-lg font-semibold">Submitted</h2>
           <p className="mt-2 text-sm text-ink/70">
-            Your work on this report has been recorded. All three reports must
-            be completed to join the project. To do another, reload this page
+            Your work on this report has been recorded. Both reports must be
+            completed to join the project. To do another, reload this page
             and pick the next report.
           </p>
         </div>
@@ -531,10 +531,10 @@ function GateScreen({
     <div className="mx-auto mt-10 max-w-md rounded-lg border border-line bg-white p-6">
       <h2 className="text-lg font-semibold">Before you start</h2>
       <p className="mt-2 text-sm text-ink/70">
-        There are three reports: SOL, BTC, and Nasdaq. Each is one task that
+        There are two reports: SOL and Nasdaq. Each is one task that
         combines an evaluation and a full rewrite.{" "}
         <span className="font-medium text-ink">
-          All three must be completed to join the project.
+          Both must be completed to join the project.
         </span>{" "}
         You choose the order; do them one at a time.
       </p>
@@ -572,7 +572,7 @@ function GateScreen({
         ))}
       </select>
       <p className="mt-1 text-xs text-ink/50">
-        All three reports must be completed to join the project.
+        Both reports must be completed to join the project.
       </p>
 
       {requiredAccessCode && (

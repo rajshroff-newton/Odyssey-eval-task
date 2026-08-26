@@ -71,7 +71,15 @@ export function reportWordCount(task: ReportTask): number {
   return wordCount(task.sections.map((s) => `${s.heading} ${s.body}`).join(" "));
 }
 
-export const TASK_ORDER: TaskKey[] = ["sol", "btc", "nasdaq"];
+// Nasdaq (G2) is intentionally excluded from the active task list for this
+// pilot - only two tasks (BTC/G1 and SOL/G3) are required. The Nasdaq
+// report's data, canary, and assigned portrait all stay defined above
+// (in REPORTS) so re-enabling it later is just adding "nasdaq" back here.
+// BTC (G1) is intentionally excluded from the active task list for this
+// pilot - only two tasks (SOL/G3 and Nasdaq/G1) are required. BTC's report
+// data, canary, and assigned portrait all stay defined above (in REPORTS)
+// so re-enabling it later is just adding "btc" back here.
+export const TASK_ORDER: TaskKey[] = ["sol", "nasdaq"];
 
 export const REPORTS: Record<TaskKey, ReportTask> = {
   sol: {
@@ -163,8 +171,8 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     ticker: "NDX",
     category: "Equity · ETF (index)",
     generatedAt: "2026-08-18 18:03:22 (UTC+8)",
-    assignedPortrait: "G2",
-    canary: "secondary support seen near $29,102.55",
+    assignedPortrait: "G1",
+    canary: "worth watching if price slips toward $29,102.55",
     sections: [
       {
         heading: "Core Conclusion",

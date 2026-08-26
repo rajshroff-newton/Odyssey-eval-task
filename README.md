@@ -1,17 +1,22 @@
 # Odyssey Eval Task
 
-Three combined tasks, one per report (SOL, BTC, Nasdaq — full report text as
-the stimulus, no screenshots). Each task is Part A (five-question evaluation
-per Attempter Guidelines v2.0: Q1 portrait fit against G1/G2/G3 + best fit,
-Q2 analytical soundness, Q3 sharpness via the sequential decision flow, Q4
-compliance, Q5 publishability) followed by Part B (Track 2 full rewrite:
-expert chooses the portrait, rewrites in full within ±20% of the original
-word count, data-integrity flag, no-AI pledge signature).
+Two combined tasks for this pilot, one per report — SOL (assigned portrait
+G3) and Nasdaq (assigned portrait G1). Full report text is the stimulus, no
+screenshots. Each task is Part A (five-question evaluation per Attempter
+Guidelines v2.0: Q1 portrait fit against G1/G2/G3 + best fit, Q2 analytical
+soundness, Q3 sharpness via the sequential decision flow, Q4 compliance, Q5
+publishability) followed by Part B (Track 2 full rewrite: the portrait is
+fixed per report, not a choice — rewrites in full within ±20% of the
+original word count, data-integrity flag, no-AI pledge signature).
 
-The attempter picks which report to do first on the start screen; all three
-must be completed. Answers autosave to localStorage (browser-local only) and
-resume on return, including after submitting. Copy/right-click is blocked
-outside form fields and paste is blocked everywhere.
+The attempter picks which report to do first on the start screen; both must
+be completed. Answers autosave to localStorage (browser-local only) and
+resume on return, including after submitting. Copy, paste, and drag-and-drop
+are all unrestricted — normal browser behavior throughout.
+
+A third report (BTC, portrait G1) is fully built and still defined in
+`data/task.ts`, just excluded from `TASK_ORDER` for this pilot. Re-enabling
+it is a one-line change — see "Editing the task content" below.
 
 Submissions post to `report_submissions`. Timing is server-side in Postgres:
 session start (`task_sessions`), an `eval_complete` marker (`session_events`)
@@ -67,14 +72,17 @@ Open http://localhost:3000.
 
 ## Editing the task content
 
-The three reports (full text, no screenshots) live in `data/task.ts` under
-`REPORTS`, keyed by `TaskKey` (`sol` / `btc` / `nasdaq`) and ordered by
-`TASK_ORDER`. Each report is `{ taskId, label, title, ticker, category,
-generatedAt, sections }`, where `sections` is the actual report body
-(heading + text per section) shown in the stimulus panel.
+All three reports (full text, no screenshots) live in `data/task.ts` under
+`REPORTS`, keyed by `TaskKey` (`sol` / `btc` / `nasdaq`). Only `TASK_ORDER`
+(currently `["sol", "btc"]`) controls which ones are actually active in the
+app — add `"nasdaq"` back to that array to bring the third report (portrait
+G2) back into the flow. Each report is `{ taskId, label, title, ticker,
+category, generatedAt, sections, assignedPortrait, canary }`, where
+`sections` is the actual report body (heading + text per section) shown in
+the stimulus panel.
 
 The three reader portraits (G1/G2/G3) and the Q2 reason lists are also in
-`data/task.ts`, shared across all three reports.
+`data/task.ts`, shared across all reports.
 
 To add a fourth report: add an entry to `REPORTS` and its key to
 `TASK_ORDER`. `app/page.tsx` doesn't need to change — the gate screen's
