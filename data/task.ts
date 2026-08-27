@@ -25,22 +25,38 @@ export type ReportTask = {
   // anywhere. Someone who knew the exact allowed email could still type it
   // in and get access; there's no auth layer to stop that.
   allowedEmails?: string[];
-  // A fabricated, precise micro-fact (a specific price/level, framed as
-  // ordinary technical-analysis language) that never appears anywhere in
-  // the visible report. Rendered as genuine in-flow text - color-matched
-  // to the report panel's white background and set to a near-zero font
-  // size - so it survives a normal copy-paste selection (manual drag,
-  // Ctrl+A, or a script reading the DOM), unlike an off-screen/clipped
-  // element, which a mouse selection never sweeps over. Phrased in plain,
-  // non-jargon language ("worth watching if price slips toward $X") since
-  // it needs to plausibly belong in a rewrite for either G1 or G3 - G1
-  // rewrites should never use trader jargon like "support level", so a
-  // canary phrased that way would be one a compliant G1 rewrite correctly
-  // omits regardless of whether the page was read programmatically. A
-  // human working only from the visible page has no way to reproduce this
-  // exact figure by accident; if it turns up in a submission, that's
-  // strong evidence the report's actual page content made it into
-  // whatever pipeline produced the rewrite.
+  // A fabricated, precise micro-fact that never appears anywhere in the
+  // visible report. Rendered as genuine in-flow text - color-matched to
+  // the report panel's white background and set to a near-zero font size
+  // - so it survives a normal copy-paste selection (manual drag, Ctrl+A,
+  // or a script reading the DOM), unlike an off-screen/clipped element,
+  // which a mouse selection never sweeps over.
+  //
+  // The register depends on which portrait(s) actually need to carry it:
+  // - G1-only reports (BTC, Nasdaq): plain, non-jargon "worth watching if
+  //   price slips toward $X" language, since G1 rewrites should never use
+  //   trading jargon like "support level" or options terminology - a
+  //   canary phrased that way would be one a compliant G1 rewrite
+  //   correctly omits regardless of whether the page was read
+  //   programmatically.
+  // - G3-only (SOL) and dual-portrait reports (MU, IBIT, XRP, S&P 500):
+  //   an options put/call ratio stat instead. These reports already
+  //   anchor on one or two specific price levels apiece, so a canary that
+  //   was "just another level" was liable to get silently merged into the
+  //   report's own already-established number by any reasonably good
+  //   rewrite (a sensible writer consolidates two mentions of the same
+  //   idea into the cleaner, pre-existing figure rather than keeping
+  //   both). A put/call ratio has nothing else in the report to be merged
+  //   into, and fits G3's own script ("I hedge with options") as
+  //   something that reads as information worth keeping. The tradeoff:
+  //   it's advanced options jargon, so a compliant G1 rewrite should
+  //   never include it - for the four dual-portrait reports, this canary
+  //   only meaningfully covers their G3 half, not their G1 half.
+  //
+  // Whichever form is used, a human working only from the visible page has
+  // no way to reproduce this exact figure by accident; if it turns up in
+  // a submission, that's strong evidence the report's actual page content
+  // made it into whatever pipeline produced the rewrite.
   canary: string;
 };
 
@@ -113,7 +129,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     category: "Crypto",
     generatedAt: "2026-08-18 18:13:23 (UTC+8)",
     assignedPortraits: ["G3"],
-    canary: "secondary support seen near $71.38",
+    canary: "options put/call ratio near 0.62, lowest in three weeks",
     sections: [
       {
         heading: "Core Conclusion",
@@ -154,7 +170,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     category: "Crypto",
     generatedAt: "2026-08-18 18:20:24 (UTC+8)",
     assignedPortraits: ["G1"],
-    canary: "worth watching if price slips toward $62,847.30",
+    canary: "worth watching if price slips toward $61,940.15",
     sections: [
       {
         heading: "Core Conclusion",
@@ -195,7 +211,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     category: "Equity · ETF (index)",
     generatedAt: "2026-08-18 18:03:22 (UTC+8)",
     assignedPortraits: ["G1"],
-    canary: "worth watching if price slips toward $29,102.55",
+    canary: "worth watching if price slips toward $27,850.60",
     sections: [
       {
         heading: "Core Conclusion",
@@ -237,7 +253,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     generatedAt: "2026-08-27 16:16:52",
     assignedPortraits: ["G1", "G3"],
     allowedEmails: ["1-edifice.flaming@icloud.com"],
-    canary: "worth watching if price slips toward $897.32",
+    canary: "options put/call ratio near 0.54, lowest in a month",
     sections: [
       {
         heading: "Core Conclusion",
@@ -271,7 +287,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     generatedAt: "2026-08-27 16:18:22",
     assignedPortraits: ["G1", "G3"],
     allowedEmails: ["1-edifice.flaming@icloud.com"],
-    canary: "worth watching if price slips toward $44.12",
+    canary: "options put/call ratio near 0.66, lowest in three weeks",
     sections: [
       {
         heading: "Core Conclusion",
@@ -305,7 +321,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     generatedAt: "2026-08-27 16:15:53",
     assignedPortraits: ["G1", "G3"],
     allowedEmails: ["jdhuge31@gmail.com"],
-    canary: "worth watching if price slips toward $1.37",
+    canary: "options put/call ratio near 0.59, lowest in a month",
     sections: [
       {
         heading: "Core Conclusion",
@@ -339,7 +355,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     generatedAt: "2026-08-27 16:11:24",
     assignedPortraits: ["G1", "G3"],
     allowedEmails: ["jdhuge31@gmail.com"],
-    canary: "worth watching if price slips toward $7,681.24",
+    canary: "options put/call ratio near 0.91, lowest in six weeks",
     sections: [
       {
         heading: "Core Conclusion",
