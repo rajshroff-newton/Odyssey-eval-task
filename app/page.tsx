@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import {
   REPORTS,
   TASK_ORDER,
+  visibleTasksForEmail,
   PORTRAITS,
   Q2_UNSOUND_REASONS,
   Q2_INSUFFICIENT_REASONS,
@@ -38,8 +39,12 @@ type Draft = {
   q4Score: Score13 | null;
   q4Note: string;
   q5: Publishability | null;
-  rewritePortrait: PortraitKey | null;
-  rewriteSections: RewriteSection[];
+  // Keyed by portrait so a report can require one rewrite (existing
+  // single-portrait reports) or two (MU/IBIT/XRP/S&P 500, which require
+  // both G1 and G3). Only the keys in the current report's
+  // assignedPortraits are ever rendered, validated, or submitted - the
+  // others just sit unused.
+  rewriteSectionsByPortrait: Record<PortraitKey, RewriteSection[]>;
   dataFlag: boolean;
   dataFlagNote: string;
   attestationSignature: string;
@@ -58,8 +63,11 @@ function emptyDraft(): Draft {
     q4Score: null,
     q4Note: "",
     q5: null,
-    rewritePortrait: null,
-    rewriteSections: [emptyRewriteSection()],
+    rewriteSectionsByPortrait: {
+      G1: [emptyRewriteSection()],
+      G2: [emptyRewriteSection()],
+      G3: [emptyRewriteSection()],
+    },
     dataFlag: false,
     dataFlagNote: "",
     attestationSignature: "",
@@ -73,7 +81,8 @@ function isDraft(d: unknown): d is Draft {
     (v.phase === "eval" || v.phase === "rewrite") &&
     !!v.q1Ratings &&
     !!v.q3Steps &&
-    Array.isArray(v.rewriteSections)
+    !!v.rewriteSectionsByPortrait &&
+    typeof v.rewriteSectionsByPortrait === "object"
   );
 }
 
@@ -124,6 +133,17 @@ function isDone(taskKey: TaskKey, email: string): boolean {
 
 // ---------- Q3 derivation (sequential decision flow) ----------
 
+function sectionsFilledIn(sections: RewriteSection[]): boolean {
+  return (
+    sections.length > 0 &&
+    sections.every(
+      (s) =>
+        s.heading.trim().length > 0 &&
+        s.bullets.split("\n").some((b) => b.trim().length > 0)
+    )
+  );
+}
+
 function deriveQ3(steps: Draft["q3Steps"]): number | null {
   if (steps.s1 === null) return null;
   if (steps.s1 === false) return 1;
@@ -164,7 +184,11 @@ export default function Page() {
   const originalWords = reportWordCount(report);
   const lowerBound = Math.ceil(originalWords * 0.8);
   const upperBound = originalWords < 150 ? 150 : Math.floor(originalWords * 1.2);
-  const rewriteWords = sectionsWordCount(draft.rewriteSections);
+  const rewriteWordsByPortrait: Record<PortraitKey, number> = {
+    G1: sectionsWordCount(draft.rewriteSectionsByPortrait.G1),
+    G2: sectionsWordCount(draft.rewriteSectionsByPortrait.G2),
+    G3: sectionsWordCount(draft.rewriteSectionsByPortrait.G3),
+  };
 
   // ---------- Autosave ----------
   useEffect(() => {
@@ -176,29 +200,38 @@ export default function Page() {
     setDraft((prev) => ({ ...prev, ...patch }));
   }
 
-  function addRewriteSection() {
+  function addRewriteSection(portrait: PortraitKey) {
     setDraft((prev) => ({
       ...prev,
-      rewriteSections: [...prev.rewriteSections, emptyRewriteSection()],
+      rewriteSectionsByPortrait: {
+        ...prev.rewriteSectionsByPortrait,
+        [portrait]: [...prev.rewriteSectionsByPortrait[portrait], emptyRewriteSection()],
+      },
     }));
   }
 
-  function removeRewriteSection(index: number) {
+  function removeRewriteSection(portrait: PortraitKey, index: number) {
     setDraft((prev) => {
-      if (prev.rewriteSections.length <= 1) return prev;
+      if (prev.rewriteSectionsByPortrait[portrait].length <= 1) return prev;
       return {
         ...prev,
-        rewriteSections: prev.rewriteSections.filter((_, i) => i !== index),
+        rewriteSectionsByPortrait: {
+          ...prev.rewriteSectionsByPortrait,
+          [portrait]: prev.rewriteSectionsByPortrait[portrait].filter((_, i) => i !== index),
+        },
       };
     });
   }
 
-  function updateRewriteSection(index: number, patch: Partial<RewriteSection>) {
+  function updateRewriteSection(portrait: PortraitKey, index: number, patch: Partial<RewriteSection>) {
     setDraft((prev) => ({
       ...prev,
-      rewriteSections: prev.rewriteSections.map((s, i) =>
-        i === index ? { ...s, ...patch } : s
-      ),
+      rewriteSectionsByPortrait: {
+        ...prev.rewriteSectionsByPortrait,
+        [portrait]: prev.rewriteSectionsByPortrait[portrait].map((s, i) =>
+          i === index ? { ...s, ...patch } : s
+        ),
+      },
     }));
   }
 
@@ -246,21 +279,24 @@ export default function Page() {
     draft.q5 !== null &&
     q5Consistent;
 
-  const rewriteInBounds = rewriteWords >= lowerBound && rewriteWords <= upperBound;
-  const rewriteSectionsFilledIn =
-    draft.rewriteSections.length > 0 &&
-    draft.rewriteSections.every(
-      (s) =>
-        s.heading.trim().length > 0 &&
-        s.bullets.split("\n").some((b) => b.trim().length > 0)
-    );
+  const rewriteInBoundsByPortrait: Record<PortraitKey, boolean> = {
+    G1: rewriteWordsByPortrait.G1 >= lowerBound && rewriteWordsByPortrait.G1 <= upperBound,
+    G2: rewriteWordsByPortrait.G2 >= lowerBound && rewriteWordsByPortrait.G2 <= upperBound,
+    G3: rewriteWordsByPortrait.G3 >= lowerBound && rewriteWordsByPortrait.G3 <= upperBound,
+  };
+  const rewriteSectionsFilledInByPortrait: Record<PortraitKey, boolean> = {
+    G1: sectionsFilledIn(draft.rewriteSectionsByPortrait.G1),
+    G2: sectionsFilledIn(draft.rewriteSectionsByPortrait.G2),
+    G3: sectionsFilledIn(draft.rewriteSectionsByPortrait.G3),
+  };
+  const allAssignedRewritesComplete = report.assignedPortraits.every(
+    (p) => rewriteSectionsFilledInByPortrait[p] && rewriteInBoundsByPortrait[p]
+  );
   const attestationMatches =
     draft.attestationSignature.trim().length > 0 &&
     draft.attestationSignature.trim().toLowerCase() === name.trim().toLowerCase();
   const rewriteComplete =
-    draft.rewritePortrait !== null &&
-    rewriteSectionsFilledIn &&
-    rewriteInBounds &&
+    allAssignedRewritesComplete &&
     (!draft.dataFlag || draft.dataFlagNote.trim().length > 0) &&
     attestationMatches;
 
@@ -296,12 +332,12 @@ export default function Page() {
     // immediately (server timestamp).
     const existing = loadDraft(taskKey, email);
     if (existing) {
-      setDraft({ ...existing, rewritePortrait: report.assignedPortrait });
+      setDraft(existing);
       if (existing.phase === "rewrite") {
         await recordEvalComplete(id);
       }
     } else {
-      setDraft({ ...emptyDraft(), rewritePortrait: report.assignedPortrait });
+      setDraft(emptyDraft());
     }
 
     setStartingTask(false);
@@ -335,49 +371,63 @@ export default function Page() {
     setSubmitting(true);
     setError(null);
 
-    const payload = {
-      attempter_name: name.trim(),
-      attempter_email: email.trim(),
-      task_id: report.taskId,
-      session_id: sessionIdRef.current,
+    // Part A is answered once and shared identically across every row -
+    // one row per assigned portrait (one row for existing single-portrait
+    // reports, two for MU/IBIT/XRP/S&P 500). Inserted sequentially, not as
+    // a single batch, so a failure partway through is unambiguous about
+    // which portrait's rewrite did or didn't land.
+    for (const portrait of report.assignedPortraits) {
+      const sections = draft.rewriteSectionsByPortrait[portrait];
+      const payload = {
+        attempter_name: name.trim(),
+        attempter_email: email.trim(),
+        task_id: report.taskId,
+        session_id: sessionIdRef.current,
 
-      q1_g1: draft.q1Ratings.G1,
-      q1_g2: draft.q1Ratings.G2,
-      q1_g3: draft.q1Ratings.G3,
-      q1_best_fit: draft.q1BestFit,
-      q1_note: draft.q1Note.trim() || null,
+        q1_g1: draft.q1Ratings.G1,
+        q1_g2: draft.q1Ratings.G2,
+        q1_g3: draft.q1Ratings.G3,
+        q1_best_fit: draft.q1BestFit,
+        q1_note: draft.q1Note.trim() || null,
 
-      q2_score: draft.q2Score,
-      q2_reason: draft.q2Reason,
-      q2_note: draft.q2Note.trim() || null,
+        q2_score: draft.q2Score,
+        q2_reason: draft.q2Reason,
+        q2_note: draft.q2Note.trim() || null,
 
-      q3_score: q3Score,
-      q3_step2_tag: q3Step2Tag(draft.q3Steps),
+        q3_score: q3Score,
+        q3_step2_tag: q3Step2Tag(draft.q3Steps),
 
-      q4_score: draft.q4Score,
-      q4_note: draft.q4Note.trim() || null,
+        q4_score: draft.q4Score,
+        q4_note: draft.q4Note.trim() || null,
 
-      q5_publishability: draft.q5,
+        q5_publishability: draft.q5,
 
-      rewrite_portrait: draft.rewritePortrait,
-      rewrite_text: sectionsToMarkdown(draft.rewriteSections).trim(),
-      rewrite_word_count: rewriteWords,
-      original_word_count: originalWords,
-      data_integrity_flag: draft.dataFlag,
-      data_integrity_note: draft.dataFlag ? draft.dataFlagNote.trim() : null,
+        rewrite_portrait: portrait,
+        rewrite_text: sectionsToMarkdown(sections).trim(),
+        rewrite_word_count: rewriteWordsByPortrait[portrait],
+        original_word_count: originalWords,
+        data_integrity_flag: draft.dataFlag,
+        data_integrity_note: draft.dataFlag ? draft.dataFlagNote.trim() : null,
 
-      no_ai_attestation_signature: draft.attestationSignature.trim(),
-    };
+        no_ai_attestation_signature: draft.attestationSignature.trim(),
+      };
 
-    const { error: insertError } = await supabase
-      .from("report_submissions")
-      .insert(payload);
+      const { error: insertError } = await supabase
+        .from("report_submissions")
+        .insert(payload);
+
+      if (insertError) {
+        setSubmitting(false);
+        setError(
+          report.assignedPortraits.length > 1
+            ? `${portrait} rewrite failed to submit: ${insertError.message}`
+            : insertError.message
+        );
+        return;
+      }
+    }
 
     setSubmitting(false);
-    if (insertError) {
-      setError(insertError.message);
-      return;
-    }
     markDone(taskKey, email);
     setStep("done");
   }
@@ -432,6 +482,10 @@ export default function Page() {
               setError("Enter a valid email address before starting.");
               return;
             }
+            if (!visibleTasksForEmail(email).includes(taskKey)) {
+              setError("This report isn't available for the email entered. Check the report selection.");
+              return;
+            }
             startSession();
           }}
         />
@@ -468,11 +522,12 @@ export default function Page() {
                 updateRewriteSection={updateRewriteSection}
                 name={name}
                 attestationMatches={attestationMatches}
+                report={report}
                 originalWords={originalWords}
                 lowerBound={lowerBound}
                 upperBound={upperBound}
-                rewriteWords={rewriteWords}
-                rewriteInBounds={rewriteInBounds}
+                rewriteWordsByPortrait={rewriteWordsByPortrait}
+                rewriteInBoundsByPortrait={rewriteInBoundsByPortrait}
                 rewriteComplete={rewriteComplete}
                 submitting={submitting}
                 error={error}
@@ -488,9 +543,9 @@ export default function Page() {
         <div className="mx-auto mt-10 max-w-md rounded-lg border border-line bg-white p-6 text-center">
           <h2 className="text-lg font-semibold">Submitted</h2>
           <p className="mt-2 text-sm text-ink/70">
-            Your work on this report has been recorded. Both reports must be
-            completed to join the project. To do another, reload this page
-            and pick the next report.
+            Your work on this report has been recorded. Every report
+            available to you must be completed to join the project. To do
+            another, reload this page and pick the next report.
           </p>
         </div>
       )}
@@ -527,14 +582,17 @@ function GateScreen({
   starting: boolean;
   onStart: () => void;
 }) {
+  const visibleTasks = visibleTasksForEmail(email);
+
   return (
     <div className="mx-auto mt-10 max-w-md rounded-lg border border-line bg-white p-6">
       <h2 className="text-lg font-semibold">Before you start</h2>
       <p className="mt-2 text-sm text-ink/70">
-        There are two reports: SOL and Nasdaq. Each is one task that
-        combines an evaluation and a full rewrite.{" "}
+        Each report is one task that combines an evaluation and a full
+        rewrite.{" "}
         <span className="font-medium text-ink">
-          Both must be completed to join the project.
+          Every report available to you must be completed to join the
+          project.
         </span>{" "}
         You choose the order; do them one at a time.
       </p>
@@ -564,15 +622,18 @@ function GateScreen({
         value={taskKey}
         onChange={(e) => setTaskKey(e.target.value as TaskKey)}
       >
-        {TASK_ORDER.map((key) => (
+        {visibleTasks.map((key) => (
           <option key={key} value={key}>
             {REPORTS[key].label}
+            {REPORTS[key].assignedPortraits.length > 1
+              ? ` (${REPORTS[key].assignedPortraits.join(" + ")} rewrites)`
+              : ""}
             {email && isDone(key, email) ? " ✓ submitted" : ""}
           </option>
         ))}
       </select>
       <p className="mt-1 text-xs text-ink/50">
-        Both reports must be completed to join the project.
+        Every report listed above must be completed to join the project.
       </p>
 
       {requiredAccessCode && (
@@ -1122,11 +1183,12 @@ function RewriteForm({
   updateRewriteSection,
   name,
   attestationMatches,
+  report,
   originalWords,
   lowerBound,
   upperBound,
-  rewriteWords,
-  rewriteInBounds,
+  rewriteWordsByPortrait,
+  rewriteInBoundsByPortrait,
   rewriteComplete,
   submitting,
   error,
@@ -1135,23 +1197,27 @@ function RewriteForm({
 }: {
   draft: Draft;
   patchDraft: (p: Partial<Draft>) => void;
-  addRewriteSection: () => void;
-  removeRewriteSection: (index: number) => void;
-  updateRewriteSection: (index: number, patch: Partial<RewriteSection>) => void;
+  addRewriteSection: (portrait: PortraitKey) => void;
+  removeRewriteSection: (portrait: PortraitKey, index: number) => void;
+  updateRewriteSection: (portrait: PortraitKey, index: number, patch: Partial<RewriteSection>) => void;
   name: string;
   attestationMatches: boolean;
+  report: ReportTask;
   originalWords: number;
   lowerBound: number;
   upperBound: number;
-  rewriteWords: number;
-  rewriteInBounds: boolean;
+  rewriteWordsByPortrait: Record<PortraitKey, number>;
+  rewriteInBoundsByPortrait: Record<PortraitKey, boolean>;
   rewriteComplete: boolean;
   submitting: boolean;
   error: string | null;
   onBackToEval: () => void;
   onSubmit: () => void;
 }) {
-  const chosen = PORTRAITS.find((p) => p.key === draft.rewritePortrait) ?? null;
+  const multiRewrite = report.assignedPortraits.length > 1;
+  const portraitLabels = report.assignedPortraits
+    .map((key) => PORTRAITS.find((p) => p.key === key)?.label ?? key)
+    .join(" and ");
 
   return (
     <div className="space-y-6">
@@ -1166,125 +1232,35 @@ function RewriteForm({
           a title followed by bullet points, repeated for as many sections as
           the rewrite needs — the same title/bullet-point structure the
           original report uses.
+          {multiRewrite && (
+            <>
+              {" "}This report requires two separate rewrites, one for each
+              assigned portrait ({portraitLabels}) — complete both below
+              before submitting.
+            </>
+          )}
         </p>
         <PortraitReference />
       </div>
 
-      <div className="rounded-lg border border-line bg-white p-5">
-        <h3 className="text-sm font-semibold">Assigned portrait</h3>
-        <p className="mt-1 text-sm text-ink/60">
-          Every rewrite of this report targets the same portrait — it isn't a
-          choice for this task.
-        </p>
-        <div className="mt-3 inline-flex items-center gap-2 rounded border border-brass bg-brass/10 px-3 py-1.5 text-sm font-medium text-brass">
-          {chosen?.label}
-        </div>
-        {chosen && (
-          <div className="mt-3 rounded border border-line bg-paper px-3 py-2 text-sm text-ink/70">
-            <p className="font-medium text-ink">
-              Your rewrite must land at {chosen.band}
-            </p>
-            <p className="mt-1">{chosen.rewriteMust}</p>
-          </div>
-        )}
-      </div>
+      {report.assignedPortraits.map((portrait) => (
+        <RewriteBlock
+          key={portrait}
+          portrait={portrait}
+          sections={draft.rewriteSectionsByPortrait[portrait]}
+          onAdd={() => addRewriteSection(portrait)}
+          onRemove={(i) => removeRewriteSection(portrait, i)}
+          onUpdate={(i, patch) => updateRewriteSection(portrait, i, patch)}
+          originalWords={originalWords}
+          lowerBound={lowerBound}
+          upperBound={upperBound}
+          rewriteWords={rewriteWordsByPortrait[portrait]}
+          rewriteInBounds={rewriteInBoundsByPortrait[portrait]}
+        />
+      ))}
 
       <div className="rounded-lg border border-line bg-white p-5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">Your rewrite</h3>
-          <span
-            className={`font-mono text-xs ${
-              rewriteInBounds ? "text-ok" : "text-warn"
-            }`}
-          >
-            {rewriteWords} words · allowed {lowerBound}–{upperBound} (original{" "}
-            {originalWords})
-          </span>
-        </div>
-        <p className="mt-1 text-xs text-ink/50">
-          One title and its bullet points per section — add as many sections
-          as the rewrite needs. Length must be within plus or minus 20% of the
-          original report's word count.
-        </p>
-
-        <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="space-y-4">
-            {draft.rewriteSections.map((section, i) => (
-              <div key={i} className="rounded border border-line p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-ink/50">
-                    Section {i + 1}
-                  </span>
-                  {draft.rewriteSections.length > 1 && (
-                    <button
-                      onClick={() => removeRewriteSection(i)}
-                      className="focus-ring text-xs text-ink/40 hover:text-warn"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-                <input
-                  className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm font-medium"
-                  value={section.heading}
-                  onChange={(e) => updateRewriteSection(i, { heading: e.target.value })}
-                  placeholder="Section title, e.g. Core Conclusion"
-                />
-                <textarea
-                  className="focus-ring mt-2 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
-                  rows={4}
-                  value={section.bullets}
-                  onChange={(e) => updateRewriteSection(i, { bullets: e.target.value })}
-                  placeholder={"Every line automatically produces a bullet point."}
-                />
-              </div>
-            ))}
-
-            <button
-              onClick={addRewriteSection}
-              className="focus-ring rounded border border-line px-3 py-1.5 text-xs font-medium text-ink/70 hover:border-brass hover:text-brass"
-            >
-              + Add section
-            </button>
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">
-              Preview
-            </p>
-            <div className="mt-1 rounded border border-line bg-paper px-4 py-3">
-              {draft.rewriteSections.every(
-                (s) => !s.heading.trim() && !s.bullets.trim()
-              ) ? (
-                <p className="text-sm text-ink/40">
-                  Your rewrite will preview here as you type.
-                </p>
-              ) : (
-                draft.rewriteSections.map((section, i) => {
-                  const bullets = section.bullets
-                    .split("\n")
-                    .map((b) => b.trim())
-                    .filter(Boolean);
-                  if (!section.heading.trim() && bullets.length === 0) return null;
-                  return (
-                    <div key={i} className="mb-4 last:mb-0">
-                      <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-brass">
-                        {section.heading.trim() || "(untitled section)"}
-                      </p>
-                      <ul className="mt-1 list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-ink/90">
-                        {bullets.map((b, bi) => (
-                          <li key={bi}>{b}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-
-        <label className="mt-4 flex items-start gap-2 text-sm">
+        <label className="flex items-start gap-2 text-sm">
           <input
             type="checkbox"
             className="mt-0.5"
@@ -1354,3 +1330,135 @@ function RewriteForm({
     </div>
   );
 }
+
+// One rewrite card for one portrait - rendered once per entry in
+// report.assignedPortraits (once for single-portrait reports, twice for
+// MU/IBIT/XRP/S&P 500).
+function RewriteBlock({
+  portrait,
+  sections,
+  onAdd,
+  onRemove,
+  onUpdate,
+  originalWords,
+  lowerBound,
+  upperBound,
+  rewriteWords,
+  rewriteInBounds,
+}: {
+  portrait: PortraitKey;
+  sections: RewriteSection[];
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+  onUpdate: (index: number, patch: Partial<RewriteSection>) => void;
+  originalWords: number;
+  lowerBound: number;
+  upperBound: number;
+  rewriteWords: number;
+  rewriteInBounds: boolean;
+}) {
+  const p = PORTRAITS.find((x) => x.key === portrait);
+
+  return (
+    <div className="rounded-lg border border-line bg-white p-5">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Rewrite for {p?.label ?? portrait}</h3>
+        <span
+          className={`font-mono text-xs ${
+            rewriteInBounds ? "text-ok" : "text-warn"
+          }`}
+        >
+          {rewriteWords} words · allowed {lowerBound}–{upperBound} (original{" "}
+          {originalWords})
+        </span>
+      </div>
+      {p && (
+        <div className="mt-2 rounded border border-line bg-paper px-3 py-2 text-sm text-ink/70">
+          <p className="font-medium text-ink">Must land at {p.band}</p>
+          <p className="mt-1">{p.rewriteMust}</p>
+        </div>
+      )}
+      <p className="mt-3 text-xs text-ink/50">
+        One title and its bullet points per section — add as many sections
+        as this rewrite needs. Length must be within plus or minus 20% of
+        the original report's word count.
+      </p>
+
+      <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="space-y-4">
+          {sections.map((section, i) => (
+            <div key={i} className="rounded border border-line p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-ink/50">
+                  Section {i + 1}
+                </span>
+                {sections.length > 1 && (
+                  <button
+                    onClick={() => onRemove(i)}
+                    className="focus-ring text-xs text-ink/40 hover:text-warn"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <input
+                className="focus-ring mt-1 w-full rounded border border-line px-3 py-2 text-sm font-medium"
+                value={section.heading}
+                onChange={(e) => onUpdate(i, { heading: e.target.value })}
+                placeholder="Section title, e.g. Core Conclusion"
+              />
+              <textarea
+                className="focus-ring mt-2 w-full rounded border border-line px-3 py-2 text-sm leading-relaxed"
+                rows={4}
+                value={section.bullets}
+                onChange={(e) => onUpdate(i, { bullets: e.target.value })}
+                placeholder={"Every line automatically produces a bullet point."}
+              />
+            </div>
+          ))}
+
+          <button
+            onClick={onAdd}
+            className="focus-ring rounded border border-line px-3 py-1.5 text-xs font-medium text-ink/70 hover:border-brass hover:text-brass"
+          >
+            + Add section
+          </button>
+        </div>
+
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink/50">
+            Preview
+          </p>
+          <div className="mt-1 rounded border border-line bg-paper px-4 py-3">
+            {sections.every((s) => !s.heading.trim() && !s.bullets.trim()) ? (
+              <p className="text-sm text-ink/40">
+                Your rewrite will preview here as you type.
+              </p>
+            ) : (
+              sections.map((section, i) => {
+                const bullets = section.bullets
+                  .split("\n")
+                  .map((b) => b.trim())
+                  .filter(Boolean);
+                if (!section.heading.trim() && bullets.length === 0) return null;
+                return (
+                  <div key={i} className="mb-4 last:mb-0">
+                    <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-brass">
+                      {section.heading.trim() || "(untitled section)"}
+                    </p>
+                    <ul className="mt-1 list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-ink/90">
+                      {bullets.map((b, bi) => (
+                        <li key={bi}>{b}</li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+

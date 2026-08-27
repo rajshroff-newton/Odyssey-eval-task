@@ -1,4 +1,4 @@
-export type TaskKey = "sol" | "btc" | "nasdaq";
+export type TaskKey = "sol" | "btc" | "nasdaq" | "mu" | "ibit" | "xrp" | "sp500";
 export type PortraitKey = "G1" | "G2" | "G3";
 
 export type ReportSection = { heading: string; body: string };
@@ -11,25 +11,36 @@ export type ReportTask = {
   category: string;
   generatedAt: string;
   sections: ReportSection[];
-  // Fixed for this pilot: which portrait every rewrite of this report must
-  // target. No longer a choice the attempter makes.
-  assignedPortrait: PortraitKey;
+  // Which portrait(s) Part B requires a rewrite for. One entry = the
+  // existing single-rewrite flow (SOL, BTC, Nasdaq). Two entries = Part B
+  // requires a separate rewrite for each, back to back, inside the same
+  // task - Part A is still answered only once either way.
+  assignedPortraits: PortraitKey[];
+  // If set, only these emails (case-insensitive) can select this report -
+  // used to restrict specific reports to specific named experts. Undefined
+  // means open to anyone, same as SOL/Nasdaq. This is a UI convenience
+  // (hides the option from the picker unless the typed email matches),
+  // not a real access-control boundary - same trust model as the rest of
+  // this app, where name/email are just typed text with no verification
+  // anywhere. Someone who knew the exact allowed email could still type it
+  // in and get access; there's no auth layer to stop that.
+  allowedEmails?: string[];
   // A fabricated, precise micro-fact (a specific price/level, framed as
   // ordinary technical-analysis language) that never appears anywhere in
   // the visible report. Rendered as genuine in-flow text - color-matched
   // to the report panel's white background and set to a near-zero font
-  // size - rather than being taken out of the layout entirely (an earlier
-  // version used position:absolute + clip, which is invisible to a human
-  // AND to a normal copy-paste selection, since a mouse-drag or Ctrl+A
-  // follows visual layout and never sweeps over a clipped, off-screen
-  // element - that version never survived a human manually copying the
-  // report). Being in-flow means any selection method - manual drag,
-  // Ctrl+A, or a script reading the DOM - picks it up the same way. A
+  // size - so it survives a normal copy-paste selection (manual drag,
+  // Ctrl+A, or a script reading the DOM), unlike an off-screen/clipped
+  // element, which a mouse selection never sweeps over. Phrased in plain,
+  // non-jargon language ("worth watching if price slips toward $X") since
+  // it needs to plausibly belong in a rewrite for either G1 or G3 - G1
+  // rewrites should never use trader jargon like "support level", so a
+  // canary phrased that way would be one a compliant G1 rewrite correctly
+  // omits regardless of whether the page was read programmatically. A
   // human working only from the visible page has no way to reproduce this
   // exact figure by accident; if it turns up in a submission, that's
-  // strong evidence the report's actual page content (not just a
-  // screenshot or a human's own reading of it) made it into the pipeline
-  // that produced the rewrite.
+  // strong evidence the report's actual page content made it into
+  // whatever pipeline produced the rewrite.
   canary: string;
 };
 
@@ -71,15 +82,27 @@ export function reportWordCount(task: ReportTask): number {
   return wordCount(task.sections.map((s) => `${s.heading} ${s.body}`).join(" "));
 }
 
-// Nasdaq (G2) is intentionally excluded from the active task list for this
-// pilot - only two tasks (BTC/G1 and SOL/G3) are required. The Nasdaq
-// report's data, canary, and assigned portrait all stay defined above
-// (in REPORTS) so re-enabling it later is just adding "nasdaq" back here.
-// BTC (G1) is intentionally excluded from the active task list for this
-// pilot - only two tasks (SOL/G3 and Nasdaq/G1) are required. BTC's report
-// data, canary, and assigned portrait all stay defined above (in REPORTS)
-// so re-enabling it later is just adding "btc" back here.
+// Reports open to anyone. Restricted reports (allowedEmails set) are never
+// listed here - they're surfaced dynamically per email by
+// visibleTasksForEmail below.
 export const TASK_ORDER: TaskKey[] = ["sol", "nasdaq"];
+
+// The full picker list for a given (in-progress) email: every open report,
+// plus any restricted report whose allowedEmails includes this exact email
+// (case-insensitive, trimmed). Recomputed live as the gate screen's email
+// field changes.
+export function visibleTasksForEmail(email: string): TaskKey[] {
+  const normalized = email.trim().toLowerCase();
+  const restricted = (Object.keys(REPORTS) as TaskKey[]).filter((key) => {
+    const allowed = REPORTS[key].allowedEmails;
+    return (
+      allowed &&
+      normalized.length > 0 &&
+      allowed.some((e) => e.toLowerCase() === normalized)
+    );
+  });
+  return [...TASK_ORDER, ...restricted];
+}
 
 export const REPORTS: Record<TaskKey, ReportTask> = {
   sol: {
@@ -89,7 +112,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     ticker: "SOLUSDT",
     category: "Crypto",
     generatedAt: "2026-08-18 18:13:23 (UTC+8)",
-    assignedPortrait: "G3",
+    assignedPortraits: ["G3"],
     canary: "secondary support seen near $71.38",
     sections: [
       {
@@ -130,7 +153,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     ticker: "BTCUSDT",
     category: "Crypto",
     generatedAt: "2026-08-18 18:20:24 (UTC+8)",
-    assignedPortrait: "G1",
+    assignedPortraits: ["G1"],
     canary: "worth watching if price slips toward $62,847.30",
     sections: [
       {
@@ -171,7 +194,7 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
     ticker: "NDX",
     category: "Equity · ETF (index)",
     generatedAt: "2026-08-18 18:03:22 (UTC+8)",
-    assignedPortrait: "G1",
+    assignedPortraits: ["G1"],
     canary: "worth watching if price slips toward $29,102.55",
     sections: [
       {
@@ -201,6 +224,142 @@ export const REPORTS: Record<TaskKey, ReportTask> = {
       {
         heading: "Bottom Line",
         body: "Nasdaq's near-term setup has turned bearish, but the broader trend has not yet broken. Elevated yields remain the key pressure point: below $30,000, the correction can extend toward $29,000; a sustained reclaim of $30,000 would materially improve the short-term outlook.",
+      },
+    ],
+  },
+
+  mu: {
+    taskId: "mu-market-report-2026-08-27",
+    label: "MU Market Report",
+    title: "MU Market Report",
+    ticker: "MU",
+    category: "Equity",
+    generatedAt: "2026-08-27 16:16:52",
+    assignedPortraits: ["G1", "G3"],
+    allowedEmails: ["1-edifice.flaming@icloud.com"],
+    canary: "worth watching if price slips toward $897.32",
+    sections: [
+      {
+        heading: "Core Conclusion",
+        body: "As of publication, MU traded at $914.18, down 0.05% from the previous close. The session range was $906.89 to $925.15, and the key point was that the price remained below its recent 30-day high.\n\nOver the past 30 trading sessions, MU retreated from $980.49 to $914.18 within a range of $906.89 to $983.91. Short-term momentum weakened and volatility increased.\n\nThe macroeconomic data was mixed: core PCE was 0.20%, GDP growth was 1.50%, and initial jobless claims were 203,000. No recent company-specific news was available; upcoming manufacturing and employment data remained in focus.",
+      },
+      {
+        heading: "Market Overview",
+        body: "MU traded at $914.18, down 0.05% from the previous close. The session range was $906.89 to $925.15, placing the price in the lower portion of its 30-session range of $906.89 to $983.91. Over the past 30 trading sessions, MU fell from $980.49 to $914.18, indicating weaker short-term momentum. The latest volume was 641,490, below the recent seven-session average of 2.26 million.\n\nToday's Change: -0.05% (Versus previous close)\nChange Amount: -$0.46 (Versus previous close)\nOne-Week Performance: -6.45% (Past five sessions)\nOne-Month Performance: -1.43% (Past 20 sessions)",
+      },
+      {
+        heading: "Key Drivers",
+        body: "Persistent inflation: Core PCE at 0.20% month over month and 3.30% year over year kept inflation above a comfortable disinflation path, limiting the scope for rapid monetary easing. For MU, a higher-for-longer rate backdrop could constrain valuation support and corporate technology spending, reinforcing a cautious fundamental bias.\n\nSlower economic growth: GDP growth of 1.50% quarter over quarter, down from 2.10% previously, signaled softer aggregate demand despite resilient pockets of activity. The slower macroeconomic impulse could temper expectations for broad-based semiconductor demand, leaving MU more dependent on memory-cycle strength and data-center investment.\n\nLabor-market resilience: Initial jobless claims of 203,000, below the prior 207,000, supported household income and economic continuity. However, firm employment could also reduce pressure for policy easing. Together with upcoming manufacturing indicators, this left demand expectations balanced rather than decisively supportive for MU.",
+      },
+      {
+        heading: "Technical Analysis",
+        body: "Trend Direction: The 10-day moving average was $953.08 and the 20-day moving average was $950.08. The 10-day average was above the 20-day average, but MU at $914.18 was below both, indicating weakening short-term momentum despite a still-positive moving-average structure.\n\nRange Position: MU at $914.18 was near the lower bound of the 30-day range of $906.89 to $983.91, well below the midpoint and still beneath the range high.\n\nTrading Volume: The latest volume was 641,490, compared with a seven-day average of 2.26 million, or 0.28 times the average, indicating contracting trading activity.",
+      },
+      {
+        heading: "Related News",
+        body: "No recent news was available.",
+      },
+    ],
+  },
+
+  ibit: {
+    taskId: "ibit-market-report-2026-08-27",
+    label: "IBIT Market Report",
+    title: "IBIT Market Report",
+    ticker: "IBIT",
+    category: "Crypto ETF",
+    generatedAt: "2026-08-27 16:18:22",
+    assignedPortraits: ["G1", "G3"],
+    allowedEmails: ["1-edifice.flaming@icloud.com"],
+    canary: "worth watching if price slips toward $44.12",
+    sections: [
+      {
+        heading: "Core Conclusion",
+        body: "As of publication, IBIT traded at $45.60, up 1.22% from the previous close. The session range was $44.58 to $45.65, placing the price near the upper end of the range.\n\nFund flows were positive. Bitcoin ETFs recently attracted $2.80 billion in inflows as investors rotated from AI exposure into the \"debasement trade.\" A BlackRock executive also said the CLARITY Act was becoming less critical for crypto assets.\n\nTechnical conditions showed that the price had recovered from a low of $43.95 to $45.60, improving short-term momentum. On the macroeconomic side, core PCE inflation was 3.30% year over year and 0.20% month over month, so inflation continued to constrain rate-sensitive assets.",
+      },
+      {
+        heading: "Market Overview",
+        body: "IBIT traded at $45.59, up 0.19% from the previous close. The session range was $44.58 to $45.65, placing the price in the upper portion of its 30-session range of $43.95 to $45.79. Volume was 1.70 million, below the recent seven-session average of 4.25 million, indicating lower trading activity.\n\nThe two largest holdings were Bitcoin and U.S. dollar cash, with a combined weight of approximately 100.00%. The portfolio was therefore almost entirely exposed to Bitcoin as a single asset.\n\nToday's Change: +0.19% (Versus previous close)\nChange Amount: $0.08 (Versus previous close)\nOne-Week Performance: +0.98% (Past five sessions)\nOne-Month Performance: +2.41% (Past 20 sessions)",
+      },
+      {
+        heading: "Key Drivers",
+        body: "ETF inflows and the debasement trade: Sustained Bitcoin ETF inflows of $2.80 billion indicated a rotation from AI exposure toward assets viewed as hedges against currency and fiscal dilution. This improved the fundamental demand backdrop for IBIT, although the trade remained sensitive to real yields and liquidity conditions.\n\nPersistent inflation constraint: Core PCE inflation remained at 3.30% year over year and 0.20% month over month, keeping price pressures above a level consistent with an easy monetary-policy backdrop. For IBIT, this could limit upside by supporting restrictive-rate expectations and raising the opportunity cost of holding a non-yielding asset.\n\nRegulatory optionality: BlackRock's view that the CLARITY Act was becoming less critical for Bitcoin and other crypto assets reduced near-term dependence on a single legislative catalyst. That supported a market narrative based more on adoption, liquidity, and macroeconomic hedging demand, while tempering event-driven regulatory repricing.",
+      },
+      {
+        heading: "Technical Analysis",
+        body: "Trend Direction: The 10-day moving average was $45.18 and the 20-day moving average was $44.78. IBIT at $45.60 was above both averages, with the 10-day average above the 20-day average, indicating stronger short-term momentum than the medium-term trend.\n\nRange Position: The 30-day range was $43.95 to $45.79, with the current price at $45.60. This placed IBIT near the upper bound of the range and was consistent with a recovery from the $43.95 low.\n\nTrading Volume: The latest volume was 1.70 million, compared with a seven-day average of 4.25 million, or 0.40 times the average, indicating contracting participation rather than volume expansion.",
+      },
+      {
+        heading: "Related News",
+        body: "Bitcoin ETFs attracted $2.80 billion as investors rotated from artificial-intelligence exposure into the \"debasement trade.\"\n\nA BlackRock executive said the CLARITY Act was \"less critical\" for Bitcoin and other cryptocurrencies.\n\nBernstein projected that Bitcoin could reach $500,000 by 2029, with Strategy potentially reaching $350.",
+      },
+    ],
+  },
+
+  xrp: {
+    taskId: "xrp-market-report-2026-08-27",
+    label: "XRP Market Report",
+    title: "XRP Market Report",
+    ticker: "XRP",
+    category: "Crypto",
+    generatedAt: "2026-08-27 16:15:53",
+    assignedPortraits: ["G1", "G3"],
+    allowedEmails: ["jdhuge31@gmail.com"],
+    canary: "worth watching if price slips toward $1.37",
+    sections: [
+      {
+        heading: "Core Conclusion",
+        body: "As of publication, XRP was trading near $1.46 after a strong rebound, with ETF inflows and institutional adoption supporting demand.\n\nMomentum was constructive, but an elevated RSI and crowded leverage made $1.40 the key near-term support during any consolidation.\n\nThe outlook remained cautiously bullish above $1.40, with a retest of $1.55 likely if ETF demand persisted. A break below support would weaken the setup.",
+      },
+      {
+        heading: "Market Overview",
+        body: "XRP was trading at $1.46, up 2.94%, or $0.04, from the previous daily candlestick close. The partial-day range was $1.39 to $1.47. The rebound remained constructive, but the latest one-week reading was slightly negative, indicating that momentum was improving while consolidation risk persisted. The $1.40 level remained the key near-term support for a potential retest of $1.55.\n\nToday's Change: +2.94% (Rebound continues)\nChange Amount: +$0.04 (Buying momentum)\nOne-Week Performance: -2.17% (Short-term consolidation)\nOne-Month Performance: +37.46% (Strong monthly trend)",
+      },
+      {
+        heading: "Key Drivers",
+        body: "Institutional ETF demand: Consecutive spot ETF inflows and new filings indicated sustained institutional capital deployment, increasing the probability of a retest of $1.55 if demand persisted.\n\nEcosystem expansion: Ripple Prime's entry into traditional equities and Mastercard-backed developer support strengthened the adoption case. Broader financial-market integration could reinforce network utility and help sustain demand above $1.40.\n\nMacroeconomic tightening risk: Rising expectations for Federal Reserve rate hikes could reduce risk appetite across digital assets, limiting follow-through and increasing the risk that a loss of $1.40 would weaken the broader setup.",
+      },
+      {
+        heading: "Technical Analysis",
+        body: "Trend Direction: The current price of $1.46 was above the 10-day moving average of $1.36 and the 20-day moving average of $1.19. The 10-day average was also above the 20-day average, confirming stronger short-term momentum and supporting a cautiously bullish structure toward $1.55, although the separation left the trend extended.\n\nRange Position: The 30-day range was $0.99 to $1.70, with the current price at $1.46. This placed XRP in the upper portion of the range rather than at the midpoint. The $1.40 area remained the key support, and a sustained break below it would require the rebound structure to be reassessed.\n\nTrading Volume: The latest volume was 113.19 million, compared with a seven-day average of 294.08 million, or 0.38 times the average. Contracting participation was a risk to the ETF- and institutional-demand thesis because a retest of $1.55 would require renewed volume expansion, while continued contraction could limit upside follow-through.",
+      },
+      {
+        heading: "Related News",
+        body: "XRP surged 31% following $1.57 billion in spot ETF inflows, while Bitcoin held $78,000.\n\nXRP spot ETFs recorded their second-largest daily inflow of 2026.\n\nXRP whale outflows reached a six-month high as the rally accelerated.",
+      },
+    ],
+  },
+
+  sp500: {
+    taskId: "sp500-market-report-2026-08-27",
+    label: "S&P 500 Market Report",
+    title: "S&P 500 Market Report",
+    ticker: "S&P 500",
+    category: "Equity Index",
+    generatedAt: "2026-08-27 16:11:24",
+    assignedPortraits: ["G1", "G3"],
+    allowedEmails: ["jdhuge31@gmail.com"],
+    canary: "worth watching if price slips toward $7,681.24",
+    sections: [
+      {
+        heading: "Core Conclusion",
+        body: "As of publication, the S&P 500 was consolidating near 7,744.47 after a sharp rebound. Momentum remained positive, but recent gains were losing breadth.\n\nStrong AI guidance supported technology shares, while inflation and potential semiconductor tariffs could keep valuations sensitive to yields and policy risk.\n\nThe near-term direction was cautiously higher above 7,700, but a break below that level would favor a deeper pullback toward 7,600.",
+      },
+      {
+        heading: "Market Overview",
+        body: "The S&P 500 stood at 7,744.46, unchanged from the previous close. The session range was 7,710.92 to 7,746.03, indicating consolidation near the upper end of the recent rebound range. Upside momentum remained intact, but market breadth still required confirmation.\n\nThe near-term bias remained cautiously higher while the index held above 7,700. A sustained break below that level would increase the risk of a deeper pullback toward 7,600. The 30-session range was 7,296.65 to 7,823.62.\n\nToday's Change: 0.00% (Momentum paused)\nChange Amount: 0.00 points (No net change)\nOne-Week Performance: +1.00% (Mild upward bias)\nOne-Month Performance: -0.29% (Monthly trend mixed)",
+      },
+      {
+        heading: "Key Drivers",
+        body: "AI capital spending: Nvidia's projection for roughly 70% revenue growth and its stronger earnings outlook reinforced confidence in technology and data-center demand. That supported the cautiously higher bias, but concentration in AI leadership left valuations sensitive to any disappointment.\n\nInflation and Federal Reserve policy: Core PCE inflation remained elevated at 3.30% year over year, while quarterly headline and core measures accelerated to 5.30% and 4.90%. Reduced confidence in near-term easing could keep yields restrictive and limit valuation expansion.\n\nSemiconductor tariff risk: Potential duties on chips and chip-intensive products could raise data-center costs, disrupt supply chains, and pressure corporate margins. Policy uncertainty therefore remained a constraint on technology breadth and could amplify downside risk below key market support.",
+      },
+      {
+        heading: "Technical Analysis",
+        body: "Trend Direction: The 10-day moving average was 7,700.47 and the 20-day moving average was 7,734.60. The current level of 7,744.46 was above both averages, while the 10-day average remained below the 20-day average. This indicated that the rebound was consolidating, with short-term momentum not yet stronger than the medium-term trend.\n\nRange Position: The 30-day range high was 7,823.62, the range low was 7,296.65, and the current level was 7,744.46. This placed the index near the upper bound of the range and supported a cautiously higher bias above 7,700, while a break below that level would raise pullback risk toward 7,600.",
+      },
+      {
+        heading: "Related News",
+        body: "U.S. second-quarter headline PCE inflation rose 5.30% quarter over quarter, and core PCE accelerated to 4.90%, reducing expectations for a September rate cut.\n\nNvidia's upbeat outlook lifted U.S. stock futures and reinforced confidence in the AI investment cycle.\n\nThe Trump administration was considering broad semiconductor tariffs that could raise costs for data centers and pressure U.S. technology equities.",
       },
     ],
   },
