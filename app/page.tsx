@@ -672,31 +672,49 @@ function ReportPanel({ report }: { report: ReportTask }) {
         </p>
       </div>
       <div className="px-4 py-3">
-        {report.sections.map((s, i) => (
-          <div key={s.heading} className="mb-5 last:mb-0">
-            <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-brass">
-              {s.heading}
-            </p>
-            <p className="mt-1 whitespace-pre-line text-[13px] leading-relaxed text-ink/90">
-              {s.body}
-              {i === 0 && (
-                // Genuinely in the normal text flow (not absolutely
-                // positioned or clipped out of it), so a manual drag-select
-                // or Ctrl+A sweeps over it the same as any other text on
-                // the page - color-matched to the white background and
-                // rendered at a near-zero size is what makes it invisible,
-                // not removal from the layout. This is what lets it survive
-                // an ordinary copy-paste, which the previous (DOM/
-                // accessibility-only) approach did not. See
-                // ReportTask.canary in data/task.ts for why.
+        {report.sections.map((s, i) => {
+          if (i !== 0) {
+            return (
+              <div key={s.heading} className="mb-5 last:mb-0">
+                <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-brass">
+                  {s.heading}
+                </p>
+                <p className="mt-1 whitespace-pre-line text-[13px] leading-relaxed text-ink/90">
+                  {s.body}
+                </p>
+              </div>
+            );
+          }
+
+          // The canary goes inside the first section, but specifically
+          // after its first paragraph, not appended at the end of the
+          // whole section. For SOL/BTC/Nasdaq, that section's last
+          // paragraph is a bracketed "[TICKER spot/stock Trade entry
+          // card]" placeholder - a canary sitting right next to that gives
+          // a model reading the page a ready-made (if false) explanation
+          // for the number: "it must be from that card." Splitting into
+          // the actual analytical prose instead removes that interpretive
+          // out and reads as a genuine part of the report's own reasoning.
+          const paragraphs = s.body.split("\n\n");
+          const firstParagraph = paragraphs[0];
+          const rest = paragraphs.slice(1).join("\n\n");
+
+          return (
+            <div key={s.heading} className="mb-5 last:mb-0">
+              <p className="font-mono text-[11px] font-semibold uppercase tracking-wide text-brass">
+                {s.heading}
+              </p>
+              <p className="mt-1 whitespace-pre-line text-[13px] leading-relaxed text-ink/90">
+                {firstParagraph}
                 <span style={{ fontSize: "1px", color: "#ffffff" }}>
                   {" "}
                   {report.canary}
                 </span>
-              )}
-            </p>
-          </div>
-        ))}
+                {rest ? "\n\n" + rest : ""}
+              </p>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
